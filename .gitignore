@@ -2,4 +2,6 @@
 .devenv
 .direnv
 .local
+.vibetree/
+/branches/
 /target

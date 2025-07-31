@@ -1,0 +1,72 @@
+use clap::{Parser, Subcommand, ValueEnum};
+
+#[derive(Parser)]
+#[command(name = "vibetree")]
+#[command(about = "A CLI tool for managing isolated development environments using git worktrees")]
+#[command(version)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+
+    #[arg(short, long, global = true)]
+    pub verbose: bool,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    #[command(about = "Initialize vibetree configuration")]
+    Init {
+        #[arg(
+            long,
+            help = "Specify which services need port isolation",
+            value_delimiter = ','
+        )]
+        services: Vec<String>,
+
+        #[arg(
+            long,
+            help = "Convert current git repo into vibetree-managed structure in-place"
+        )]
+        convert_repo: bool,
+    },
+
+    #[command(about = "Create new git worktree with isolated port configuration")]
+    Create {
+        #[arg(help = "Name of the branch/worktree to create")]
+        branch_name: String,
+
+        #[arg(long, help = "Create worktree from specific branch")]
+        from: Option<String>,
+
+        #[arg(long, help = "Specify custom port assignments", value_delimiter = ',')]
+        ports: Option<Vec<u16>>,
+
+        #[arg(long, help = "Show what would be created without making changes")]
+        dry_run: bool,
+    },
+
+    #[command(about = "Remove git worktree and clean up port allocations")]
+    Remove {
+        #[arg(help = "Name of the branch/worktree to remove")]
+        branch_name: String,
+
+        #[arg(long, help = "Remove even if processes are running on allocated ports")]
+        force: bool,
+
+        #[arg(long, help = "Remove worktree but keep git branch")]
+        keep_branch: bool,
+    },
+
+    #[command(about = "List all worktrees with their port allocations")]
+    List {
+        #[arg(short, long, help = "Output format")]
+        format: Option<OutputFormat>,
+    },
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum OutputFormat {
+    Table,
+    Json,
+    Yaml,
+}

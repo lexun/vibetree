@@ -38,6 +38,36 @@
     in
     {
       formatter = forEachSupportedSystem ({ pkgs, ... }: pkgs.nixfmt-rfc-style);
+
+      packages = forEachSupportedSystem (
+        { pkgs, ... }:
+        {
+          default = pkgs.rustPlatform.buildRustPackage {
+            pname = "vibetree";
+            version = "0.1.0";
+            src = ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+
+            # Skip integration tests in Nix build (they require git and file system access)
+            cargoTestFlags = [ "--lib" ];
+
+            buildInputs = with pkgs; [
+              openssl
+              pkg-config
+            ];
+
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+              perl
+            ];
+          };
+        }
+      );
+
+      overlays.default = final: prev: {
+        vibetree = self.packages.${final.system}.default;
+      };
+
       devShells = forEachSupportedSystem (
         { pkgs, ... }:
         pkgs.lib.optionalAttrs devenvEnabled {
@@ -47,9 +77,7 @@
               # https://devenv.sh/reference/options/
               {
                 languages.rust.enable = true;
-                packages = with pkgs; [
-                  just
-                ];
+                packages = with pkgs; [ ];
               }
             ];
           };
