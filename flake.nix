@@ -46,6 +46,7 @@
             modules = [
               # https://devenv.sh/reference/options/
               {
+                languages.rust.enable = true;
                 packages = with pkgs; [
                   just
                 ];
