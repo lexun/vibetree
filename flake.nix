@@ -1,7 +1,6 @@
 {
   inputs = {
     nixpkgs.url = "github:cachix/devenv-nixpkgs/rolling";
-    systems.url = "github:nix-systems/default";
     devenv.url = "github:cachix/devenv";
     devenv.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -11,37 +10,49 @@
     extra-substituters = "https://devenv.cachix.org";
   };
 
-  outputs = { self, nixpkgs, devenv, systems, ... } @ inputs:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      devenv,
+      systems,
+      ...
+    }@inputs:
     let
-      forEachSystem = nixpkgs.lib.genAttrs (import systems);
+      devenvEnabled = (builtins.getEnv "DEVENV_ENABLED") == "true";
+      supportedSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      forEachSupportedSystem =
+        fn:
+        nixpkgs.lib.genAttrs supportedSystems (
+          system:
+          fn {
+            inherit system;
+            pkgs = import nixpkgs { inherit system; };
+          }
+        );
     in
     {
-      packages = forEachSystem (system: {
-        devenv-up = self.devShells.${system}.default.config.procfileScript;
-        devenv-test = self.devShells.${system}.default.config.test;
-      });
-
-      devShells = forEachSystem
-        (system:
-          let
-            pkgs = nixpkgs.legacyPackages.${system};
-          in
-          {
-            default = devenv.lib.mkShell {
-              inherit inputs pkgs;
-              modules = [
-                {
-                  # https://devenv.sh/reference/options/
-                  packages = [ pkgs.hello ];
-
-                  enterShell = ''
-                    hello
-                  '';
-
-                  processes.hello.exec = "hello";
-                }
-              ];
-            };
-          });
+      formatter = forEachSupportedSystem ({ pkgs, ... }: pkgs.nixfmt-rfc-style);
+      devShells = forEachSupportedSystem (
+        { pkgs, ... }:
+        pkgs.lib.optionalAttrs devenvEnabled {
+          default = devenv.lib.mkShell {
+            inherit inputs pkgs;
+            modules = [
+              # https://devenv.sh/reference/options/
+              {
+                packages = with pkgs; [
+                  just
+                ];
+              }
+            ];
+          };
+        }
+      );
     };
 }
