@@ -1,3 +1,4 @@
 .devenv
 .direnv
 .claude/settings.local.json
+/target
