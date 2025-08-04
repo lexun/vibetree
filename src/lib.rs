@@ -76,14 +76,9 @@ impl VibeTreeApp {
             return Ok(());
         }
 
-        // Check if already properly initialized (has services configured)
-        if !self.config.project_config.services.is_empty() {
-            warn!(
-                "Configuration already initialized with services: {}",
-                self.config.project_config.services.join(", ")
-            );
-            return Ok(());
-        }
+        // Clear existing configuration to start fresh
+        self.config.project_config.services.clear();
+        self.config.project_config.port_ranges.clear();
 
         // Update services if provided
         if !services.is_empty() {
