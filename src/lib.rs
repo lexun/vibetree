@@ -121,7 +121,8 @@ impl VibeTreeApp {
             self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
         );
         if !self.config.project_config.services.is_empty() {
-            println!("🚀 Start services with: process-compose --env .vibetree/env up");
+            println!("🚀 Environment file created at .vibetree/env");
+            println!("   Use with process orchestrators like: docker compose --env-file .vibetree/env up");
         }
         println!("💡 Add '.vibetree/' to your worktree .gitignore files");
 
@@ -206,7 +207,8 @@ impl VibeTreeApp {
             self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
         );
         if !self.config.project_config.services.is_empty() {
-            println!("🚀 Start services with: process-compose --env .vibetree/env up");
+            println!("🚀 Environment file created at .vibetree/env");
+            println!("   Use with process orchestrators like: docker compose --env-file .vibetree/env up");
         }
         println!(
             "🌿 Current branch '{}' remains active in repository root",
@@ -405,7 +407,8 @@ impl VibeTreeApp {
         for (service, port) in &ports {
             println!("  {} → {}", service, port);
         }
-        println!("🚀 Start services with: process-compose --env .vibetree/env up");
+        println!("🚀 Environment file created at .vibetree/env");
+        println!("   Use with process orchestrators like: docker compose --env-file .vibetree/env up");
 
         Ok(())
     }
