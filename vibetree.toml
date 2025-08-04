@@ -1,4 +1,8 @@
 version = "1"
-services = []
 main_branch = "main"
 branches_dir = "branches"
+
+[services]
+web = 3000
+db = 5432
+api = 8080

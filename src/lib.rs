@@ -78,23 +78,19 @@ impl VibeTreeApp {
 
         // Clear existing configuration to start fresh
         self.config.project_config.services.clear();
-        self.config.project_config.port_ranges.clear();
 
-        // Update services if provided
+        // Parse and update services if provided
         if !services.is_empty() {
-            self.config.project_config.services = services.clone();
-
-            // Set up port ranges for services - using reasonable defaults
-            // Users should customize these in vibetree.toml if needed
-            for service in &services {
-                if !self.config.project_config.port_ranges.contains_key(service) {
-                    // Use incremental base ports to avoid conflicts
-                    let base_port =
-                        8000 + (self.config.project_config.port_ranges.len() as u16 * 100);
-                    self.config
-                        .project_config
-                        .port_ranges
-                        .insert(service.clone(), (base_port, base_port + 99));
+            for service_spec in &services {
+                if let Some((service, port_str)) = service_spec.split_once(':') {
+                    let port = port_str.parse::<u16>()
+                        .with_context(|| format!("Invalid port '{}' for service '{}'", port_str, service))?;
+                    
+                    self.config.project_config.services.insert(service.to_string(), port);
+                } else {
+                    // Service without port - use default incremental port
+                    let default_port = 8000 + (self.config.project_config.services.len() as u16 * 100);
+                    self.config.project_config.services.insert(service_spec.clone(), default_port);
                 }
             }
         }
@@ -107,7 +103,7 @@ impl VibeTreeApp {
         );
         println!(
             "📝 Configured services: {}",
-            self.config.project_config.services.join(", ")
+            self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
         );
         println!("💡 Add '.vibetree/' to your worktree .gitignore files");
 
@@ -158,17 +154,16 @@ impl VibeTreeApp {
 
         // Configure services
         if !services.is_empty() {
-            self.config.project_config.services = services.to_vec();
-
-            // Set up port ranges for services
-            for service in services {
-                if !self.config.project_config.port_ranges.contains_key(service) {
-                    let base_port =
-                        8000 + (self.config.project_config.port_ranges.len() as u16 * 100);
-                    self.config
-                        .project_config
-                        .port_ranges
-                        .insert(service.clone(), (base_port, base_port + 99));
+            for service_spec in services {
+                if let Some((service, port_str)) = service_spec.split_once(':') {
+                    let port = port_str.parse::<u16>()
+                        .with_context(|| format!("Invalid port '{}' for service '{}'", port_str, service))?;
+                    
+                    self.config.project_config.services.insert(service.to_string(), port);
+                } else {
+                    // Service without port - use default incremental port
+                    let default_port = 8000 + (self.config.project_config.services.len() as u16 * 100);
+                    self.config.project_config.services.insert(service_spec.clone(), default_port);
                 }
             }
         }
@@ -179,7 +174,7 @@ impl VibeTreeApp {
         println!("✅ Successfully converted repository to vibetree-managed structure");
         println!(
             "📝 Configured services: {}",
-            self.config.project_config.services.join(", ")
+            self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
         );
         println!(
             "🌿 Current branch '{}' remains active in repository root",
@@ -281,18 +276,13 @@ impl VibeTreeApp {
                 anyhow::bail!(
                     "Expected {} ports for services: {}",
                     self.config.project_config.services.len(),
-                    self.config.project_config.services.join(", ")
+                    self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
                 );
             }
 
             let mut port_map = HashMap::new();
-            for (service, port) in self
-                .config
-                .project_config
-                .services
-                .iter()
-                .zip(custom.iter())
-            {
+            let service_names: Vec<String> = self.config.project_config.services.keys().cloned().collect();
+            for (service, port) in service_names.iter().zip(custom.iter()) {
                 port_map.insert(service.clone(), *port);
             }
             Some(port_map)
@@ -572,16 +562,12 @@ impl VibeTreeApp {
     }
 
     // Getter methods to allow tests to access private fields
-    pub fn get_services(&self) -> &Vec<String> {
+    pub fn get_services(&self) -> &std::collections::HashMap<String, u16> {
         &self.config.project_config.services
     }
 
     pub fn get_worktrees(&self) -> &std::collections::HashMap<String, WorktreeConfig> {
         &self.config.branches_config.worktrees
-    }
-
-    pub fn get_port_ranges(&self) -> &std::collections::HashMap<String, (u16, u16)> {
-        &self.config.project_config.port_ranges
     }
 
     /// Internal method for testing - bypasses confirmation prompts
@@ -632,17 +618,10 @@ mod tests {
         app.init(services.clone(), false)?;
 
         // Services should be updated after init
-        assert_eq!(app.config.project_config.services, services);
+        // Verify services were configured
         assert!(VibeTreeConfig::get_project_config_path().unwrap().exists());
-
-        // Should have port ranges for the services
-        assert!(
-            app.config
-                .project_config
-                .port_ranges
-                .contains_key("postgres")
-        );
-        assert!(app.config.project_config.port_ranges.contains_key("redis"));
+        assert!(app.config.project_config.services.contains_key("postgres"));
+        assert!(app.config.project_config.services.contains_key("redis"));
 
         Ok(())
     }

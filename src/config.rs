@@ -8,10 +8,8 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VibeTreeProjectConfig {
     pub version: String,
-    #[serde(default)]
-    pub services: Vec<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub port_ranges: HashMap<String, (u16, u16)>,
+    pub services: HashMap<String, u16>,
     pub main_branch: String,
     #[serde(default = "default_branches_dir")]
     pub branches_dir: String,
@@ -48,8 +46,7 @@ impl Default for VibeTreeProjectConfig {
     fn default() -> Self {
         Self {
             version: "1".to_string(),
-            services: vec![],
-            port_ranges: HashMap::new(),
+            services: HashMap::new(),
             main_branch: "main".to_string(),
             branches_dir: default_branches_dir(),
             env_var_names: HashMap::new(),
@@ -276,30 +273,15 @@ impl VibeTreeProjectConfig {
         existing_worktrees: &HashMap<String, WorktreeConfig>,
     ) -> Result<HashMap<String, u16>> {
         let mut allocated_ports = HashMap::new();
-        let mut used_ports = Self::get_all_used_ports(existing_worktrees);
+        let used_ports = Self::get_all_used_ports(existing_worktrees);
 
-        for service in &self.services {
-            let (start, end) = self
-                .port_ranges
-                .get(service)
-                .ok_or_else(|| anyhow::anyhow!("No port range defined for service: {}", service))?;
-
-            let mut port = *start;
-            while port <= *end && used_ports.contains(&port) {
+        for (service, &start_port) in &self.services {
+            let mut port = start_port;
+            while used_ports.contains(&port) {
                 port += 1;
             }
 
-            if port > *end {
-                anyhow::bail!(
-                    "No available ports for service '{}' in range {}-{}",
-                    service,
-                    start,
-                    end
-                );
-            }
-
             allocated_ports.insert(service.clone(), port);
-            used_ports.insert(port);
         }
 
         Ok(allocated_ports)
@@ -327,7 +309,7 @@ mod tests {
     fn test_default_config() {
         let config = VibeTreeConfig::default();
         assert_eq!(config.project_config.version, "1");
-        assert_eq!(config.project_config.services, Vec::<String>::new()); // Empty by default
+        assert!(config.project_config.services.is_empty()); // Empty by default
         assert_eq!(config.project_config.main_branch, "main");
         assert!(config.branches_config.worktrees.is_empty());
     }
@@ -357,26 +339,21 @@ mod tests {
         config
             .project_config
             .services
-            .push("test-service".to_string());
-        config
-            .project_config
-            .port_ranges
-            .insert("test-service".to_string(), (8000, 8100));
+            .insert("test-service".to_string(), 8000);
 
         let ports1 = config.add_worktree("branch1".to_string(), None)?;
 
         let ports2 = config.add_worktree("branch2".to_string(), None)?;
 
         // Verify ports are different
-        for service in &config.project_config.services {
+        for (service, _) in &config.project_config.services {
             assert_ne!(ports1[service], ports2[service]);
         }
 
-        // Verify ports are within ranges
-        for service in &config.project_config.services {
-            let (start, end) = &config.project_config.port_ranges[service];
-            assert!(ports1[service] >= *start && ports1[service] <= *end);
-            assert!(ports2[service] >= *start && ports2[service] <= *end);
+        // Verify ports start from the configured starting port
+        for (service, &start_port) in &config.project_config.services {
+            assert!(ports1[service] >= start_port);
+            assert!(ports2[service] >= start_port);
         }
 
         Ok(())
@@ -390,11 +367,7 @@ mod tests {
         config
             .project_config
             .services
-            .push("test-service".to_string());
-        config
-            .project_config
-            .port_ranges
-            .insert("test-service".to_string(), (8000, 8100));
+            .insert("test-service".to_string(), 8000);
 
         config.add_worktree("test-branch".to_string(), None)?;
 
@@ -414,11 +387,7 @@ mod tests {
         config
             .project_config
             .services
-            .push("test-service".to_string());
-        config
-            .project_config
-            .port_ranges
-            .insert("test-service".to_string(), (8000, 8100));
+            .insert("test-service".to_string(), 8000);
 
         config
             .add_worktree("test-branch".to_string(), None)
