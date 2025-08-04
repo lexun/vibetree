@@ -97,6 +97,21 @@ impl VibeTreeApp {
 
         self.save_config()?;
 
+        // Create .vibetree/env file in the main worktree if services are configured
+        if !self.config.project_config.services.is_empty() {
+            let current_dir = std::env::current_dir().context("Failed to get current directory")?;
+            let main_branch = GitManager::get_current_branch(&current_dir)
+                .unwrap_or_else(|_| self.config.project_config.main_branch.clone());
+            
+            EnvFileGenerator::generate_env_file(
+                &current_dir,
+                &main_branch,
+                &self.config.project_config.services,
+                &self.config.project_config.env_var_names,
+            )
+            .context("Failed to generate environment file for main worktree")?;
+        }
+
         println!(
             "✅ Initialized vibetree configuration at {}",
             VibeTreeConfig::get_project_config_path().unwrap().display()
@@ -105,6 +120,9 @@ impl VibeTreeApp {
             "📝 Configured services: {}",
             self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
         );
+        if !self.config.project_config.services.is_empty() {
+            println!("🚀 Start services with: process-compose --env .vibetree/env up");
+        }
         println!("💡 Add '.vibetree/' to your worktree .gitignore files");
 
         Ok(())
@@ -171,11 +189,25 @@ impl VibeTreeApp {
         // Save the configuration
         self.save_config()?;
 
+        // Create .vibetree/env file in the main worktree if services are configured
+        if !self.config.project_config.services.is_empty() {
+            EnvFileGenerator::generate_env_file(
+                &current_dir,
+                &current_branch,
+                &self.config.project_config.services,
+                &self.config.project_config.env_var_names,
+            )
+            .context("Failed to generate environment file for main worktree")?;
+        }
+
         println!("✅ Successfully converted repository to vibetree-managed structure");
         println!(
             "📝 Configured services: {}",
             self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
         );
+        if !self.config.project_config.services.is_empty() {
+            println!("🚀 Start services with: process-compose --env .vibetree/env up");
+        }
         println!(
             "🌿 Current branch '{}' remains active in repository root",
             current_branch
