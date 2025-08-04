@@ -23,6 +23,7 @@ pub use git::{GitManager, WorktreeValidation};
 
 use anyhow::{Context, Result};
 use log::{info, warn};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -30,11 +31,12 @@ use std::path::PathBuf;
 pub use ports::PortManager;
 
 /// Helper struct for formatting worktree data across different output formats
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct WorktreeDisplayData {
     name: String,
     status: String,
     ports: HashMap<String, u16>,
+    #[serde(skip)]
     ports_display: String,
 }
 
@@ -506,41 +508,28 @@ impl VibeTreeApp {
     fn list_worktrees_json(&self) -> Result<()> {
         let worktree_data = self.collect_worktree_data()?;
 
-        // Simple JSON-like output since we don't need full serde_json for dev dependencies
-        println!("{{");
-        for (i, data) in worktree_data.iter().enumerate() {
-            if i > 0 {
-                println!(",");
-            }
-            println!("  \"{}\": {{", data.name);
-            println!("    \"ports\": {{");
-            for (j, (service, port)) in data.ports.iter().enumerate() {
-                if j > 0 {
-                    println!(",");
-                }
-                print!("      \"{}\": {}", service, port);
-            }
-            println!();
-            println!("    }}");
-            print!("  }}");
-        }
-        println!();
-        println!("}}");
+        let output: HashMap<&str, &WorktreeDisplayData> = worktree_data
+            .iter()
+            .map(|data| (data.name.as_str(), data))
+            .collect();
+
+        let json = serde_json::to_string_pretty(&output)
+            .context("Failed to serialize worktree data to JSON")?;
+        println!("{}", json);
         Ok(())
     }
 
     fn list_worktrees_yaml(&self) -> Result<()> {
         let worktree_data = self.collect_worktree_data()?;
 
-        // Simple YAML-like output since we don't have serde_yaml
-        for data in worktree_data {
-            println!("{}:", data.name);
-            println!("  ports:");
-            for (service, port) in &data.ports {
-                println!("    {}: {}", service, port);
-            }
-            println!();
-        }
+        let output: HashMap<&str, &WorktreeDisplayData> = worktree_data
+            .iter()
+            .map(|data| (data.name.as_str(), data))
+            .collect();
+
+        let yaml = serde_yaml::to_string(&output)
+            .context("Failed to serialize worktree data to YAML")?;
+        print!("{}", yaml);
         Ok(())
     }
 
