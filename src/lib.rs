@@ -95,14 +95,16 @@ impl VibeTreeApp {
             }
         }
 
-        self.save_config()?;
-
-        // Create .vibetree/env file in the main worktree if services are configured
+        // Add the main branch to branches configuration if services are configured
         if !self.config.project_config.services.is_empty() {
             let current_dir = std::env::current_dir().context("Failed to get current directory")?;
             let main_branch = GitManager::get_current_branch(&current_dir)
                 .unwrap_or_else(|_| self.config.project_config.main_branch.clone());
             
+            // Add main branch with the base service ports to branches.toml
+            self.config.add_worktree(main_branch.clone(), Some(self.config.project_config.services.clone()))?;
+            
+            // Generate env file for the main worktree
             let env_file_path = self.config.get_env_file_path(&current_dir);
             EnvFileGenerator::generate_env_file(
                 &env_file_path,
@@ -112,6 +114,8 @@ impl VibeTreeApp {
             )
             .context("Failed to generate environment file for main worktree")?;
         }
+
+        self.save_config()?;
 
         println!(
             "[✓] Initialized vibetree configuration at {}",
@@ -188,11 +192,12 @@ impl VibeTreeApp {
             }
         }
 
-        // Save the configuration
-        self.save_config()?;
-
-        // Create .vibetree/env file in the main worktree if services are configured
+        // Add the main branch to branches configuration if services are configured
         if !self.config.project_config.services.is_empty() {
+            // Add main branch with the base service ports to branches.toml
+            self.config.add_worktree(current_branch.clone(), Some(self.config.project_config.services.clone()))?;
+            
+            // Generate env file for the main worktree
             let env_file_path = self.config.get_env_file_path(&current_dir);
             EnvFileGenerator::generate_env_file(
                 &env_file_path,
@@ -202,6 +207,9 @@ impl VibeTreeApp {
             )
             .context("Failed to generate environment file for main worktree")?;
         }
+
+        // Save the configuration
+        self.save_config()?;
 
         println!("[✓] Successfully converted repository to vibetree-managed structure");
         println!(
