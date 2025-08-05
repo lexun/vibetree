@@ -103,8 +103,9 @@ impl VibeTreeApp {
             let main_branch = GitManager::get_current_branch(&current_dir)
                 .unwrap_or_else(|_| self.config.project_config.main_branch.clone());
             
+            let env_file_path = self.config.get_env_file_path(&current_dir);
             EnvFileGenerator::generate_env_file(
-                &current_dir,
+                &env_file_path,
                 &main_branch,
                 &self.config.project_config.services,
                 &self.config.project_config.env_var_names,
@@ -192,8 +193,9 @@ impl VibeTreeApp {
 
         // Create .vibetree/env file in the main worktree if services are configured
         if !self.config.project_config.services.is_empty() {
+            let env_file_path = self.config.get_env_file_path(&current_dir);
             EnvFileGenerator::generate_env_file(
-                &current_dir,
+                &env_file_path,
                 &current_branch,
                 &self.config.project_config.services,
                 &self.config.project_config.env_var_names,
@@ -379,8 +381,9 @@ impl VibeTreeApp {
         // Configuration was already updated by add_worktree above
 
         // Generate environment file
+        let env_file_path = self.config.get_env_file_path(&worktree_path);
         EnvFileGenerator::generate_env_file(
-            &worktree_path,
+            &env_file_path,
             &branch_name,
             &ports,
             &self.config.project_config.env_var_names,

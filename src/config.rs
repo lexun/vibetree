@@ -15,6 +15,8 @@ pub struct VibeTreeProjectConfig {
     pub branches_dir: String,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub env_var_names: HashMap<String, String>,
+    #[serde(default = "default_env_file_path")]
+    pub env_file_path: String,
 }
 
 /// Local worktree state - stored in .vibetree/branches.toml (not checked into git)
@@ -36,6 +38,10 @@ fn default_branches_dir() -> String {
     "branches".to_string()
 }
 
+fn default_env_file_path() -> String {
+    ".vibetree/env".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorktreeConfig {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -50,6 +56,7 @@ impl Default for VibeTreeProjectConfig {
             main_branch: "main".to_string(),
             branches_dir: default_branches_dir(),
             env_var_names: HashMap::new(),
+            env_file_path: default_env_file_path(),
         }
     }
 }
@@ -264,6 +271,10 @@ impl VibeTreeConfig {
         let parent = Self::get_vibetree_parent()?;
         Ok(parent.join(".vibetree").join("branches.toml"))
     }
+
+    pub fn get_env_file_path(&self, worktree_path: &Path) -> PathBuf {
+        worktree_path.join(&self.project_config.env_file_path)
+    }
 }
 
 impl VibeTreeProjectConfig {
@@ -376,6 +387,20 @@ mod tests {
         config.remove_worktree("test-branch")?;
         assert!(!config.branches_config.worktrees.contains_key("test-branch"));
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_custom_env_file_path() -> Result<()> {
+        let mut config = VibeTreeConfig::default();
+        config.project_config.env_file_path = "custom/.env".to_string();
+        
+        let temp_dir = tempfile::TempDir::new()?;
+        let worktree_path = temp_dir.path();
+        
+        let env_file_path = config.get_env_file_path(worktree_path);
+        assert_eq!(env_file_path, worktree_path.join("custom/.env"));
+        
         Ok(())
     }
 

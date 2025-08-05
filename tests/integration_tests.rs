@@ -162,12 +162,9 @@ fn test_complete_vibetree_workflow() -> Result<()> {
     assert!(setup.config_path().exists());
 
     // Verify services were configured
-    assert_eq!(app.get_services(), &services);
     assert_eq!(app.get_services().len(), 3);
-
-    // Verify port ranges were set up
     for service in &services {
-        assert!(app.get_port_ranges().contains_key(service));
+        assert!(app.get_services().contains_key(service));
     }
 
     // Step 2: Create first worktree
@@ -390,8 +387,8 @@ fn test_config_persistence() -> Result<()> {
         assert_eq!(app2.get_services().len(), 2);
         assert_eq!(app2.get_worktrees().len(), 1);
         assert!(app2.get_worktrees().contains_key("persistent-test"));
-        assert!(app2.get_services().contains(&"postgres".to_string()));
-        assert!(app2.get_services().contains(&"redis".to_string()));
+        assert!(app2.get_services().contains_key(&"postgres".to_string()));
+        assert!(app2.get_services().contains_key(&"redis".to_string()));
     }
 
     Ok(())
@@ -410,7 +407,6 @@ fn test_serviceless_vibetree_workflow() -> Result<()> {
 
     // Verify no services were configured
     assert_eq!(app.get_services().len(), 0);
-    assert_eq!(app.get_port_ranges().len(), 0);
 
     // Step 2: Create worktree without any services/ports
     app.create_worktree(

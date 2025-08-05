@@ -7,23 +7,23 @@ pub struct EnvFileGenerator;
 
 impl EnvFileGenerator {
     pub fn generate_env_file(
-        worktree_path: &Path,
+        env_file_path: &Path,
         branch_name: &str,
         ports: &HashMap<String, u16>,
         env_var_names: &HashMap<String, String>,
     ) -> Result<()> {
-        let vibetree_dir = worktree_path.join(".vibetree");
-        fs::create_dir_all(&vibetree_dir).with_context(|| {
-            format!(
-                "Failed to create .vibetree directory: {}",
-                vibetree_dir.display()
-            )
-        })?;
+        if let Some(parent) = env_file_path.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "Failed to create env file directory: {}",
+                    parent.display()
+                )
+            })?;
+        }
 
-        let env_file_path = vibetree_dir.join("env");
         let content = Self::build_env_content(branch_name, ports, env_var_names);
 
-        fs::write(&env_file_path, content)
+        fs::write(env_file_path, content)
             .with_context(|| format!("Failed to write env file: {}", env_file_path.display()))?;
 
         Ok(())
@@ -107,14 +107,12 @@ impl EnvFileGenerator {
         }
     }
 
-    pub fn read_env_file(worktree_path: &Path) -> Result<HashMap<String, String>> {
-        let env_file_path = worktree_path.join(".vibetree").join("env");
-
+    pub fn read_env_file(env_file_path: &Path) -> Result<HashMap<String, String>> {
         if !env_file_path.exists() {
             return Ok(HashMap::new());
         }
 
-        let content = fs::read_to_string(&env_file_path)
+        let content = fs::read_to_string(env_file_path)
             .with_context(|| format!("Failed to read env file: {}", env_file_path.display()))?;
 
         let mut env_vars = HashMap::new();
@@ -154,9 +152,9 @@ mod tests {
         env_var_names.insert("redis".to_string(), "REDIS_PORT".to_string());
         env_var_names.insert("api".to_string(), "API_PORT".to_string());
 
-        EnvFileGenerator::generate_env_file(worktree_path, "test-branch", &ports, &env_var_names)?;
-
         let env_file_path = worktree_path.join(".vibetree").join("env");
+        EnvFileGenerator::generate_env_file(&env_file_path, "test-branch", &ports, &env_var_names)?;
+
         assert!(env_file_path.exists());
 
         let content = fs::read_to_string(&env_file_path)?;
@@ -182,9 +180,10 @@ mod tests {
         env_var_names.insert("postgres".to_string(), "PGPORT".to_string());
         env_var_names.insert("redis".to_string(), "REDIS_PORT".to_string());
 
-        EnvFileGenerator::generate_env_file(worktree_path, "test-branch", &ports, &env_var_names)?;
+        let env_file_path = worktree_path.join(".vibetree").join("env");
+        EnvFileGenerator::generate_env_file(&env_file_path, "test-branch", &ports, &env_var_names)?;
 
-        let env_vars = EnvFileGenerator::read_env_file(worktree_path)?;
+        let env_vars = EnvFileGenerator::read_env_file(&env_file_path)?;
 
         assert_eq!(env_vars.get("PGPORT"), Some(&"5433".to_string()));
         assert_eq!(env_vars.get("REDIS_PORT"), Some(&"6380".to_string()));
@@ -221,6 +220,32 @@ mod tests {
             EnvFileGenerator::service_to_env_var("my-custom-service", &env_var_names),
             "MY-CUSTOM-SERVICE_PORT"
         );
+    }
+
+    #[test]
+    fn test_custom_env_file_path() -> Result<()> {
+        let temp_dir = TempDir::new()?;
+        let worktree_path = temp_dir.path();
+
+        let custom_env_path = worktree_path.join("custom").join("path").join(".env");
+
+        let mut ports = HashMap::new();
+        ports.insert("api".to_string(), 8080);
+
+        let env_var_names = HashMap::new();
+
+        EnvFileGenerator::generate_env_file(&custom_env_path, "test-branch", &ports, &env_var_names)?;
+
+        assert!(custom_env_path.exists());
+        
+        let content = fs::read_to_string(&custom_env_path)?;
+        assert!(content.contains("API_PORT=8080"));
+        assert!(content.contains("VIBETREE_BRANCH=test-branch"));
+
+        let env_vars = EnvFileGenerator::read_env_file(&custom_env_path)?;
+        assert_eq!(env_vars.get("API_PORT"), Some(&"8080".to_string()));
+
+        Ok(())
     }
 
     #[test]
