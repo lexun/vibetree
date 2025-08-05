@@ -20,7 +20,10 @@ Vibetree manages Git work trees while automatically allocating distinct ports fo
 
 ```bash
 # Initialize vibetree in a repository
-vibetree init --services web:3000,api:8080,db:5432
+vibetree init --variables web,api,db
+
+# Or specify custom starting ports
+vibetree init --variables web:3000,api:8080,db:5432
 
 # Create a new work tree with allocated ports
 vibetree create feature-branch
