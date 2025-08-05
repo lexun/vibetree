@@ -1,8 +1,9 @@
 version = "1"
 main_branch = "main"
 branches_dir = "branches"
+env_file_path = ".vibetree/env"
 
 [services]
 api = 8080
-web = 3000
 db = 5432
+web = 3000
