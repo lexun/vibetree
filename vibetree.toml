@@ -1,4 +1,0 @@
-version = "1"
-main_branch = "main"
-branches_dir = "branches"
-env_file_path = ".vibetree/env"
