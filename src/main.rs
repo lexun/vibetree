@@ -30,10 +30,10 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Init {
-            services,
+            variables,
             convert_repo,
         } => {
-            app.init(services, convert_repo)?;
+            app.init(variables, convert_repo)?;
         }
 
         Commands::Create {

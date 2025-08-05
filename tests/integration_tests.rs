@@ -150,21 +150,22 @@ fn test_complete_vibetree_workflow() -> Result<()> {
     let setup = IntegrationTestSetup::new()?;
     let mut app = setup.create_app()?;
 
-    // Step 1: Initialize vibetree with custom services
-    let services = vec![
+    // Step 1: Initialize vibetree with custom variables
+    let variables = vec![
         "postgres".to_string(),
         "redis".to_string(),
         "api".to_string(),
     ];
-    app.init(services.clone(), false)?;
+    app.init(variables.clone(), false)?;
 
     // Verify config file was created
     assert!(setup.config_path().exists());
 
-    // Verify services were configured
-    assert_eq!(app.get_services().len(), 3);
-    for service in &services {
-        assert!(app.get_services().contains_key(service));
+    // Verify variables were configured
+    assert_eq!(app.get_variables().len(), 3);
+    for variable in &variables {
+        let expected_env_var = format!("{}_PORT", variable.to_uppercase());
+        assert!(app.get_variables().iter().any(|v| v.name == expected_env_var));
     }
 
     // Step 2: Create first worktree
@@ -223,7 +224,7 @@ fn test_complete_vibetree_workflow() -> Result<()> {
     app.list_worktrees(None)?; // Should not panic
 
     // Verify configuration state
-    assert_eq!(app.get_worktrees().len(), 2); // feature-auth and feature-payments
+    assert_eq!(app.get_worktrees().len(), 3); // main + feature-auth and feature-payments
     assert!(app.get_worktrees().contains_key("feature-auth"));
     assert!(app.get_worktrees().contains_key("feature-payments"));
 
@@ -244,7 +245,7 @@ fn test_complete_vibetree_workflow() -> Result<()> {
 
     // Verify worktree was removed
     assert!(!setup.worktree_exists("feature-payments"));
-    assert_eq!(app.get_worktrees().len(), 1);
+    assert_eq!(app.get_worktrees().len(), 2); // main + feature-auth
     assert!(!app.get_worktrees().contains_key("feature-payments"));
 
     // Verify git worktree was cleaned up
@@ -263,7 +264,7 @@ fn test_port_conflict_detection() -> Result<()> {
     let setup = IntegrationTestSetup::new()?;
     let mut app = setup.create_app()?;
 
-    // Initialize with services
+    // Initialize with variables
     app.init(vec!["postgres".to_string(), "redis".to_string()], false)?;
 
     // Create first worktree
@@ -286,7 +287,7 @@ fn test_port_conflict_detection() -> Result<()> {
 
     // Verify second worktree was not created
     assert!(!setup.worktree_exists("branch2"));
-    assert_eq!(app.get_worktrees().len(), 1);
+    assert_eq!(app.get_worktrees().len(), 2); // main + branch1
 
     Ok(())
 }
@@ -375,7 +376,7 @@ fn test_config_persistence() -> Result<()> {
         app1.init(vec!["postgres".to_string(), "redis".to_string()], false)?;
         app1.create_worktree("persistent-test".to_string(), None, None, false)?;
 
-        assert_eq!(app1.get_worktrees().len(), 1);
+        assert_eq!(app1.get_worktrees().len(), 2); // main + persistent-test
     } // app1 goes out of scope
 
     // Create new app instance - should load existing config
@@ -383,11 +384,11 @@ fn test_config_persistence() -> Result<()> {
         let app2 = setup.create_app()?;
 
         // Verify configuration was persisted and loaded
-        assert_eq!(app2.get_services().len(), 2);
-        assert_eq!(app2.get_worktrees().len(), 1);
+        assert_eq!(app2.get_variables().len(), 2);
+        assert_eq!(app2.get_worktrees().len(), 2); // main + persistent-test
         assert!(app2.get_worktrees().contains_key("persistent-test"));
-        assert!(app2.get_services().contains_key(&"postgres".to_string()));
-        assert!(app2.get_services().contains_key(&"redis".to_string()));
+        assert!(app2.get_variables().iter().any(|v| v.name == "POSTGRES_PORT"));
+        assert!(app2.get_variables().iter().any(|v| v.name == "REDIS_PORT"));
     }
 
     Ok(())
@@ -404,30 +405,31 @@ fn test_serviceless_vibetree_workflow() -> Result<()> {
     // Verify config file was created
     assert!(setup.config_path().exists());
 
-    // Verify no services were configured
-    assert_eq!(app.get_services().len(), 0);
+    // Verify no variables were configured
+    assert_eq!(app.get_variables().len(), 0);
 
-    // Step 2: Create worktree without any services/ports
+    // Step 2: Create worktree without any variables/ports
     app.create_worktree(
-        "feature-no-services".to_string(),
+        "feature-no-variables".to_string(),
         None,  // from main branch
         None,  // no ports needed
         false, // not dry run
     )?;
 
     // Verify worktree was created
-    assert!(setup.worktree_exists("feature-no-services"));
-    assert!(setup.env_file_exists("feature-no-services"));
+    assert!(setup.worktree_exists("feature-no-variables"));
+    assert!(setup.env_file_exists("feature-no-variables"));
 
-    // Verify env file content (should only have basic vibetree vars, no service ports)
-    let env_content = setup.read_env_file("feature-no-services")?;
+    // Verify env file content (should only have basic vibetree vars, no variable ports)
+    let env_content = setup.read_env_file("feature-no-variables")?;
+    assert!(env_content.contains("VIBETREE_BRANCH=feature-no-variables"));
     assert!(env_content.contains("# Generated by vibetree"));
     // Should NOT contain any port variables
     assert!(!env_content.contains("_PORT="));
 
     // Verify git worktree was created
     let worktrees_output = setup.run_git_cmd(&["worktree", "list"])?;
-    assert!(worktrees_output.contains("feature-no-services"));
+    assert!(worktrees_output.contains("feature-no-variables"));
 
     // Step 3: Create second worktree (should also work fine)
     app.create_worktree(
@@ -446,14 +448,14 @@ fn test_serviceless_vibetree_workflow() -> Result<()> {
 
     // Verify configuration state
     assert_eq!(app.get_worktrees().len(), 2);
-    assert!(app.get_worktrees().contains_key("feature-no-services"));
+    assert!(app.get_worktrees().contains_key("feature-no-variables"));
     assert!(app.get_worktrees().contains_key("another-feature"));
 
     // Both worktrees should have empty ports
-    assert_eq!(app.get_worktrees()["feature-no-services"].ports.len(), 0);
+    assert_eq!(app.get_worktrees()["feature-no-variables"].ports.len(), 0);
     assert_eq!(app.get_worktrees()["another-feature"].ports.len(), 0);
 
-    // Step 5: Remove a worktree (should work same as with services)
+    // Step 5: Remove a worktree (should work same as with variables)
     app.remove_worktree_for_test(
         "another-feature".to_string(),
         false, // not forced

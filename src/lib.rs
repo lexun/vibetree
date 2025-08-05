@@ -17,7 +17,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Re-export public types for external use
 pub use cli::{Cli, Commands, OutputFormat};
-pub use config::{VibeTreeConfig, WorktreeConfig};
+pub use config::{VariableConfig, VibeTreeConfig, WorktreeConfig};
 pub use env::EnvFileGenerator;
 pub use git::{GitManager, WorktreeValidation};
 
@@ -67,50 +67,66 @@ impl VibeTreeApp {
     }
 
     /// Initialize vibetree configuration
-    pub fn init(&mut self, services: Vec<String>, convert_repo: bool) -> Result<()> {
+    pub fn init(&mut self, variables: Vec<String>, convert_repo: bool) -> Result<()> {
         info!("Initializing vibetree configuration");
 
         // Handle repository conversion if requested
         if convert_repo {
-            self.convert_existing_repo(&services)?;
+            self.convert_existing_repo(&variables)?;
             return Ok(());
         }
 
         // Clear existing configuration to start fresh
-        self.config.project_config.services.clear();
+        self.config.project_config.variables.clear();
 
-        // Parse and update services if provided
-        if !services.is_empty() {
-            for service_spec in &services {
-                if let Some((service, port_str)) = service_spec.split_once(':') {
+        // Parse and update variables if provided
+        if !variables.is_empty() {
+            for variable_spec in &variables {
+                if let Some((variable, port_str)) = variable_spec.split_once(':') {
                     let port = port_str.parse::<u16>()
-                        .with_context(|| format!("Invalid port '{}' for service '{}'", port_str, service))?;
+                        .with_context(|| format!("Invalid port '{}' for variable '{}'", port_str, variable))?;
                     
-                    self.config.project_config.services.insert(service.to_string(), port);
+                    // Convert variable name to env var name (uppercase + _PORT)
+                    let env_var_name = format!("{}_PORT", variable.to_uppercase());
+                    
+                    self.config.project_config.variables.push(VariableConfig {
+                        name: env_var_name,
+                        port,
+                    });
                 } else {
-                    // Service without port - use default incremental port
-                    let default_port = 8000 + (self.config.project_config.services.len() as u16 * 100);
-                    self.config.project_config.services.insert(service_spec.clone(), default_port);
+                    // Variable without port - use default incremental port
+                    let default_port = 8000 + (self.config.project_config.variables.len() as u16 * 100);
+                    let env_var_name = format!("{}_PORT", variable_spec.to_uppercase());
+                    
+                    self.config.project_config.variables.push(VariableConfig {
+                        name: env_var_name,
+                        port: default_port,
+                    });
                 }
             }
         }
 
-        // Add the main branch to branches configuration if services are configured
-        if !self.config.project_config.services.is_empty() {
+        // Add or update the main branch to branches configuration if variables are configured
+        if !self.config.project_config.variables.is_empty() {
             let current_dir = std::env::current_dir().context("Failed to get current directory")?;
             let main_branch = GitManager::get_current_branch(&current_dir)
                 .unwrap_or_else(|_| self.config.project_config.main_branch.clone());
             
-            // Add main branch with the base service ports to branches.toml
-            self.config.add_worktree(main_branch.clone(), Some(self.config.project_config.services.clone()))?;
+            // Create port mapping for main branch using base variable ports
+            let mut main_branch_ports = HashMap::new();
+            for variable in &self.config.project_config.variables {
+                main_branch_ports.insert(variable.name.clone(), variable.port);
+            }
+            
+            // Add or update main branch with the base variable ports to branches.toml
+            self.config.add_or_update_worktree(main_branch.clone(), Some(main_branch_ports.clone()))?;
             
             // Generate env file for the main worktree
             let env_file_path = self.config.get_env_file_path(&current_dir);
             EnvFileGenerator::generate_env_file(
                 &env_file_path,
                 &main_branch,
-                &self.config.project_config.services,
-                &self.config.project_config.env_var_names,
+                &main_branch_ports,
             )
             .context("Failed to generate environment file for main worktree")?;
         }
@@ -122,10 +138,13 @@ impl VibeTreeApp {
             VibeTreeConfig::get_project_config_path().unwrap().display()
         );
         println!(
-            "[*] Configured services: {}",
-            self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
+            "[*] Configured variables: {}",
+            self.config.project_config.variables.iter()
+                .map(|v| format!("{}:{}", v.name, v.port))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
-        if !self.config.project_config.services.is_empty() {
+        if !self.config.project_config.variables.is_empty() {
             println!("[+] Environment file created at .vibetree/env");
             println!("    Use with process orchestrators like: docker compose --env-file .vibetree/env up");
         }
@@ -135,7 +154,7 @@ impl VibeTreeApp {
     }
 
     /// Convert existing git repository to vibetree-managed structure in-place
-    fn convert_existing_repo(&mut self, services: &[String]) -> Result<()> {
+    fn convert_existing_repo(&mut self, variables: &[String]) -> Result<()> {
         let current_dir = std::env::current_dir().context("Failed to get current directory")?;
 
         // Validate conversion is possible and needed
@@ -176,34 +195,50 @@ impl VibeTreeApp {
         // Update .gitignore to include branches directory
         self.update_gitignore(&current_dir)?;
 
-        // Configure services
-        if !services.is_empty() {
-            for service_spec in services {
-                if let Some((service, port_str)) = service_spec.split_once(':') {
+        // Configure variables
+        if !variables.is_empty() {
+            for variable_spec in variables {
+                if let Some((variable, port_str)) = variable_spec.split_once(':') {
                     let port = port_str.parse::<u16>()
-                        .with_context(|| format!("Invalid port '{}' for service '{}'", port_str, service))?;
+                        .with_context(|| format!("Invalid port '{}' for variable '{}'", port_str, variable))?;
                     
-                    self.config.project_config.services.insert(service.to_string(), port);
+                    // Convert variable name to env var name (uppercase + _PORT)
+                    let env_var_name = format!("{}_PORT", variable.to_uppercase());
+                    
+                    self.config.project_config.variables.push(VariableConfig {
+                        name: env_var_name,
+                        port,
+                    });
                 } else {
-                    // Service without port - use default incremental port
-                    let default_port = 8000 + (self.config.project_config.services.len() as u16 * 100);
-                    self.config.project_config.services.insert(service_spec.clone(), default_port);
+                    // Variable without port - use default incremental port
+                    let default_port = 8000 + (self.config.project_config.variables.len() as u16 * 100);
+                    let env_var_name = format!("{}_PORT", variable_spec.to_uppercase());
+                    
+                    self.config.project_config.variables.push(VariableConfig {
+                        name: env_var_name,
+                        port: default_port,
+                    });
                 }
             }
         }
 
-        // Add the main branch to branches configuration if services are configured
-        if !self.config.project_config.services.is_empty() {
-            // Add main branch with the base service ports to branches.toml
-            self.config.add_worktree(current_branch.clone(), Some(self.config.project_config.services.clone()))?;
+        // Add or update the main branch to branches configuration if variables are configured
+        if !self.config.project_config.variables.is_empty() {
+            // Create port mapping for main branch using base variable ports
+            let mut main_branch_ports = HashMap::new();
+            for variable in &self.config.project_config.variables {
+                main_branch_ports.insert(variable.name.clone(), variable.port);
+            }
+            
+            // Add or update main branch with the base variable ports to branches.toml
+            self.config.add_or_update_worktree(current_branch.clone(), Some(main_branch_ports.clone()))?;
             
             // Generate env file for the main worktree
             let env_file_path = self.config.get_env_file_path(&current_dir);
             EnvFileGenerator::generate_env_file(
                 &env_file_path,
                 &current_branch,
-                &self.config.project_config.services,
-                &self.config.project_config.env_var_names,
+                &main_branch_ports,
             )
             .context("Failed to generate environment file for main worktree")?;
         }
@@ -213,10 +248,13 @@ impl VibeTreeApp {
 
         println!("[✓] Successfully converted repository to vibetree-managed structure");
         println!(
-            "[*] Configured services: {}",
-            self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
+            "[*] Configured variables: {}",
+            self.config.project_config.variables.iter()
+                .map(|v| format!("{}:{}", v.name, v.port))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
-        if !self.config.project_config.services.is_empty() {
+        if !self.config.project_config.variables.is_empty() {
             println!("[+] Environment file created at .vibetree/env");
             println!("    Use with process orchestrators like: docker compose --env-file .vibetree/env up");
         }
@@ -315,19 +353,21 @@ impl VibeTreeApp {
 
         // Convert custom ports Vec to HashMap if provided
         let custom_port_map = if let Some(custom) = custom_ports {
-            // Validate port count matches service count
-            if custom.len() != self.config.project_config.services.len() {
+            // Validate port count matches variable count
+            if custom.len() != self.config.project_config.variables.len() {
                 anyhow::bail!(
-                    "Expected {} ports for services: {}",
-                    self.config.project_config.services.len(),
-                    self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
+                    "Expected {} ports for variables: {}",
+                    self.config.project_config.variables.len(),
+                    self.config.project_config.variables.iter()
+                        .map(|v| v.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
             }
 
             let mut port_map = HashMap::new();
-            let service_names: Vec<String> = self.config.project_config.services.keys().cloned().collect();
-            for (service, port) in service_names.iter().zip(custom.iter()) {
-                port_map.insert(service.clone(), *port);
+            for (variable, port) in self.config.project_config.variables.iter().zip(custom.iter()) {
+                port_map.insert(variable.name.clone(), *port);
             }
             Some(port_map)
         } else {
@@ -371,8 +411,8 @@ impl VibeTreeApp {
                 from_branch.as_deref().unwrap_or("HEAD")
             );
             println!("  [#] Ports:");
-            for (service, port) in &ports {
-                println!("    {} → {}", service, port);
+            for (variable, port) in &ports {
+                println!("    {} → {}", variable, port);
             }
             return Ok(());
         }
@@ -394,7 +434,6 @@ impl VibeTreeApp {
             &env_file_path,
             &branch_name,
             &ports,
-            &self.config.project_config.env_var_names,
         )
         .context("Failed to generate environment file")?;
 
@@ -415,8 +454,8 @@ impl VibeTreeApp {
             worktree_path.display()
         );
         println!("[#] Allocated ports:");
-        for (service, port) in &ports {
-            println!("  {} → {}", service, port);
+        for (variable, port) in &ports {
+            println!("  {} → {}", variable, port);
         }
         println!("[+] Environment file created at .vibetree/env");
         println!("    Use with process orchestrators like: docker compose --env-file .vibetree/env up");
@@ -608,8 +647,8 @@ impl VibeTreeApp {
     }
 
     // Getter methods to allow tests to access private fields
-    pub fn get_services(&self) -> &std::collections::HashMap<String, u16> {
-        &self.config.project_config.services
+    pub fn get_variables(&self) -> &Vec<VariableConfig> {
+        &self.config.project_config.variables
     }
 
     pub fn get_worktrees(&self) -> &std::collections::HashMap<String, WorktreeConfig> {
@@ -651,8 +690,8 @@ mod tests {
         let (_temp_dir, app) = setup_test_app()?;
         assert_eq!(app.config.project_config.version, "1");
         assert_eq!(app.config.project_config.main_branch, "main");
-        // Services should be empty by default - user specifies them during init
-        assert!(app.config.project_config.services.is_empty());
+        // Variables should be empty by default - user specifies them during init
+        assert!(app.config.project_config.variables.is_empty());
         Ok(())
     }
 
@@ -660,14 +699,14 @@ mod tests {
     fn test_init() -> Result<()> {
         let (_temp_dir, mut app) = setup_test_app()?;
 
-        let services = vec!["postgres".to_string(), "redis".to_string()];
-        app.init(services.clone(), false)?;
+        let variables = vec!["postgres".to_string(), "redis".to_string()];
+        app.init(variables.clone(), false)?;
 
-        // Services should be updated after init
-        // Verify services were configured
+        // Variables should be updated after init
+        // Verify variables were configured
         assert!(VibeTreeConfig::get_project_config_path().unwrap().exists());
-        assert!(app.config.project_config.services.contains_key("postgres"));
-        assert!(app.config.project_config.services.contains_key("redis"));
+        assert!(app.config.project_config.variables.iter().any(|v| v.name == "POSTGRES_PORT"));
+        assert!(app.config.project_config.variables.iter().any(|v| v.name == "REDIS_PORT"));
 
         Ok(())
     }

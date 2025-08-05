@@ -18,10 +18,10 @@ pub enum Commands {
     Init {
         #[arg(
             long,
-            help = "Specify which services need port isolation",
+            help = "Specify which variables need port isolation",
             value_delimiter = ','
         )]
-        services: Vec<String>,
+        variables: Vec<String>,
 
         #[arg(
             long,

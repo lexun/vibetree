@@ -4,17 +4,22 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Variable configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariableConfig {
+    pub name: String, // Environment variable name
+    pub port: u16,    // Starting port
+}
+
 /// Shared project configuration - stored in vibetree.toml (checked into git)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VibeTreeProjectConfig {
     pub version: String,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub services: HashMap<String, u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variables: Vec<VariableConfig>,
     pub main_branch: String,
     #[serde(default = "default_branches_dir")]
     pub branches_dir: String,
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub env_var_names: HashMap<String, String>,
     #[serde(default = "default_env_file_path")]
     pub env_file_path: String,
 }
@@ -45,17 +50,16 @@ fn default_env_file_path() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorktreeConfig {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub ports: HashMap<String, u16>,
+    pub ports: HashMap<String, u16>, // env_var_name -> port
 }
 
 impl Default for VibeTreeProjectConfig {
     fn default() -> Self {
         Self {
             version: "1".to_string(),
-            services: HashMap::new(),
+            variables: Vec::new(),
             main_branch: "main".to_string(),
             branches_dir: default_branches_dir(),
-            env_var_names: HashMap::new(),
             env_file_path: default_env_file_path(),
         }
     }
@@ -203,6 +207,44 @@ impl VibeTreeConfig {
         Ok(())
     }
 
+    pub fn add_or_update_worktree(
+        &mut self,
+        name: String,
+        custom_ports: Option<HashMap<String, u16>>,
+    ) -> Result<HashMap<String, u16>> {
+        let ports = if let Some(custom) = custom_ports {
+            // Check for conflicts with existing worktrees (excluding the one we're updating)
+            for (variable, &port) in custom.iter() {
+                for (existing_name, existing_worktree) in &self.branches_config.worktrees {
+                    if existing_name != &name && existing_worktree.ports.values().any(|p| *p == port) {
+                        anyhow::bail!(
+                            "Port {} (for variable '{}') is already allocated to worktree '{}'",
+                            port,
+                            variable,
+                            existing_name
+                        );
+                    }
+                }
+            }
+
+            custom
+        } else if self.project_config.variables.is_empty() {
+            // No variables defined, no ports needed
+            HashMap::new()
+        } else {
+            self.project_config
+                .allocate_ports(&name, &self.branches_config.worktrees)?
+        };
+
+        let worktree = WorktreeConfig {
+            ports: ports.clone(),
+        };
+
+        self.branches_config.worktrees.insert(name, worktree);
+        self.save_branches_config()?; // Save changes to branches config
+        Ok(ports)
+    }
+
     pub fn add_worktree(
         &mut self,
         name: String,
@@ -214,13 +256,13 @@ impl VibeTreeConfig {
 
         let ports = if let Some(custom) = custom_ports {
             // Check for conflicts with existing worktrees
-            for (service, &port) in custom.iter() {
+            for (variable, &port) in custom.iter() {
                 for (existing_name, existing_worktree) in &self.branches_config.worktrees {
                     if existing_worktree.ports.values().any(|p| *p == port) {
                         anyhow::bail!(
-                            "Port {} (for service '{}') is already allocated to worktree '{}'",
+                            "Port {} (for variable '{}') is already allocated to worktree '{}'",
                             port,
-                            service,
+                            variable,
                             existing_name
                         );
                     }
@@ -228,8 +270,8 @@ impl VibeTreeConfig {
             }
 
             custom
-        } else if self.project_config.services.is_empty() {
-            // No services defined, no ports needed
+        } else if self.project_config.variables.is_empty() {
+            // No variables defined, no ports needed
             HashMap::new()
         } else {
             self.project_config
@@ -286,13 +328,13 @@ impl VibeTreeProjectConfig {
         let mut allocated_ports = HashMap::new();
         let used_ports = Self::get_all_used_ports(existing_worktrees);
 
-        for (service, &start_port) in &self.services {
-            let mut port = start_port;
+        for variable in &self.variables {
+            let mut port = variable.port;
             while used_ports.contains(&port) {
                 port += 1;
             }
 
-            allocated_ports.insert(service.clone(), port);
+            allocated_ports.insert(variable.name.clone(), port);
         }
 
         Ok(allocated_ports)
@@ -320,7 +362,7 @@ mod tests {
     fn test_default_config() {
         let config = VibeTreeConfig::default();
         assert_eq!(config.project_config.version, "1");
-        assert!(config.project_config.services.is_empty()); // Empty by default
+        assert!(config.project_config.variables.is_empty()); // Empty by default
         assert_eq!(config.project_config.main_branch, "main");
         assert!(config.branches_config.worktrees.is_empty());
     }
@@ -346,25 +388,25 @@ mod tests {
     fn test_port_allocation() -> Result<()> {
         let mut config = VibeTreeConfig::default();
 
-        // Add some services first
-        config
-            .project_config
-            .services
-            .insert("test-service".to_string(), 8000);
+        // Add some variables first
+        config.project_config.variables.push(VariableConfig {
+            name: "TEST_SERVICE_PORT".to_string(),
+            port: 8000,
+        });
 
         let ports1 = config.add_worktree("branch1".to_string(), None)?;
 
         let ports2 = config.add_worktree("branch2".to_string(), None)?;
 
         // Verify ports are different
-        for (service, _) in &config.project_config.services {
-            assert_ne!(ports1[service], ports2[service]);
+        for variable in &config.project_config.variables {
+            assert_ne!(ports1[&variable.name], ports2[&variable.name]);
         }
 
         // Verify ports start from the configured starting port
-        for (service, &start_port) in &config.project_config.services {
-            assert!(ports1[service] >= start_port);
-            assert!(ports2[service] >= start_port);
+        for variable in &config.project_config.variables {
+            assert!(ports1[&variable.name] >= variable.port);
+            assert!(ports2[&variable.name] >= variable.port);
         }
 
         Ok(())
@@ -374,11 +416,11 @@ mod tests {
     fn test_remove_worktree() -> Result<()> {
         let mut config = VibeTreeConfig::default();
 
-        // Add a service for testing
-        config
-            .project_config
-            .services
-            .insert("test-service".to_string(), 8000);
+        // Add a variable for testing
+        config.project_config.variables.push(VariableConfig {
+            name: "TEST_SERVICE_PORT".to_string(),
+            port: 8000,
+        });
 
         config.add_worktree("test-branch".to_string(), None)?;
 
@@ -408,11 +450,11 @@ mod tests {
     fn test_duplicate_worktree_error() {
         let mut config = VibeTreeConfig::default();
 
-        // Add a service for testing
-        config
-            .project_config
-            .services
-            .insert("test-service".to_string(), 8000);
+        // Add a variable for testing
+        config.project_config.variables.push(VariableConfig {
+            name: "TEST_SERVICE_PORT".to_string(),
+            port: 8000,
+        });
 
         config
             .add_worktree("test-branch".to_string(), None)

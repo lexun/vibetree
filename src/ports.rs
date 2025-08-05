@@ -18,11 +18,11 @@ impl PortManager {
 
     pub fn suggest_alternative_ports(
         used_ports: &HashSet<u16>,
-        service_ranges: &HashMap<String, (u16, u16)>,
+        variable_ranges: &HashMap<String, (u16, u16)>,
     ) -> Result<HashMap<String, Vec<u16>>> {
         let mut suggestions = HashMap::new();
 
-        for (service, (start, end)) in service_ranges {
+        for (variable, (start, end)) in variable_ranges {
             let mut available_ports = Vec::new();
 
             for port in *start..=*end {
@@ -36,7 +36,7 @@ impl PortManager {
             }
 
             if !available_ports.is_empty() {
-                suggestions.insert(service.clone(), available_ports);
+                suggestions.insert(variable.clone(), available_ports);
             }
         }
 
@@ -66,17 +66,17 @@ impl PortManager {
         let mut issues = Vec::new();
         let reserved_ports = Self::get_system_reserved_ports();
 
-        for (service, (start, end)) in ranges {
+        for (variable, (start, end)) in ranges {
             if start >= end {
                 issues.push(format!(
-                    "Service '{}': start port {} must be less than end port {}",
-                    service, start, end
+                    "Variable '{}': start port {} must be less than end port {}",
+                    variable, start, end
                 ));
                 continue;
             }
 
             if *start == 0 {
-                issues.push(format!("Service '{}': port 0 is not valid", service));
+                issues.push(format!("Variable '{}': port 0 is not valid", variable));
             }
 
             // Note: u16 can't exceed 65535, so no need to check upper bound
@@ -85,24 +85,24 @@ impl PortManager {
             let range_overlaps_reserved = (*start..=*end).any(|p| reserved_ports.contains(&p));
             if range_overlaps_reserved {
                 issues.push(format!(
-                    "Service '{}': port range {}-{} overlaps with system reserved ports",
-                    service, start, end
+                    "Variable '{}': port range {}-{} overlaps with system reserved ports",
+                    variable, start, end
                 ));
             }
         }
 
-        // Check for overlapping ranges between services
-        let services: Vec<_> = ranges.keys().collect();
-        for i in 0..services.len() {
-            for j in (i + 1)..services.len() {
-                let (service1, service2) = (services[i], services[j]);
-                let (start1, end1) = ranges[service1];
-                let (start2, end2) = ranges[service2];
+        // Check for overlapping ranges between variables
+        let variables: Vec<_> = ranges.keys().collect();
+        for i in 0..variables.len() {
+            for j in (i + 1)..variables.len() {
+                let (variable1, variable2) = (variables[i], variables[j]);
+                let (start1, end1) = ranges[variable1];
+                let (start2, end2) = ranges[variable2];
 
                 if start1 <= end2 && end1 >= start2 {
                     issues.push(format!(
-                        "Services '{}' and '{}' have overlapping port ranges: {}-{} and {}-{}",
-                        service1, service2, start1, end1, start2, end2
+                        "Variables '{}' and '{}' have overlapping port ranges: {}-{} and {}-{}",
+                        variable1, variable2, start1, end1, start2, end2
                     ));
                 }
             }
@@ -175,8 +175,8 @@ mod tests {
     #[test]
     fn test_validate_overlapping_ranges() -> Result<()> {
         let mut ranges = HashMap::new();
-        ranges.insert("service1".to_string(), (5000, 5100));
-        ranges.insert("service2".to_string(), (5050, 5150)); // Overlaps with service1
+        ranges.insert("variable1".to_string(), (5000, 5100));
+        ranges.insert("variable2".to_string(), (5050, 5150)); // Overlaps with variable1
 
         let issues = PortManager::validate_port_ranges(&ranges)?;
         assert!(!issues.is_empty());
@@ -191,10 +191,10 @@ mod tests {
         used_ports.insert(5432);
         used_ports.insert(5433);
 
-        let mut service_ranges = HashMap::new();
-        service_ranges.insert("postgres".to_string(), (5432, 5500));
+        let mut variable_ranges = HashMap::new();
+        variable_ranges.insert("postgres".to_string(), (5432, 5500));
 
-        let suggestions = PortManager::suggest_alternative_ports(&used_ports, &service_ranges)?;
+        let suggestions = PortManager::suggest_alternative_ports(&used_ports, &variable_ranges)?;
 
         if let Some(postgres_suggestions) = suggestions.get("postgres") {
             assert!(!postgres_suggestions.is_empty());
