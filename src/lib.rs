@@ -113,18 +113,18 @@ impl VibeTreeApp {
         }
 
         println!(
-            "✅ Initialized vibetree configuration at {}",
+            "[✓] Initialized vibetree configuration at {}",
             VibeTreeConfig::get_project_config_path().unwrap().display()
         );
         println!(
-            "📝 Configured services: {}",
+            "[*] Configured services: {}",
             self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
         );
         if !self.config.project_config.services.is_empty() {
-            println!("🚀 Environment file created at .vibetree/env");
-            println!("   Use with process orchestrators like: docker compose --env-file .vibetree/env up");
+            println!("[+] Environment file created at .vibetree/env");
+            println!("    Use with process orchestrators like: docker compose --env-file .vibetree/env up");
         }
-        println!("💡 Add '.vibetree/' to your worktree .gitignore files");
+        println!("[!] Add '.vibetree/' to your worktree .gitignore files");
 
         Ok(())
     }
@@ -201,21 +201,21 @@ impl VibeTreeApp {
             .context("Failed to generate environment file for main worktree")?;
         }
 
-        println!("✅ Successfully converted repository to vibetree-managed structure");
+        println!("[✓] Successfully converted repository to vibetree-managed structure");
         println!(
-            "📝 Configured services: {}",
+            "[*] Configured services: {}",
             self.config.project_config.services.keys().cloned().collect::<Vec<_>>().join(", ")
         );
         if !self.config.project_config.services.is_empty() {
-            println!("🚀 Environment file created at .vibetree/env");
-            println!("   Use with process orchestrators like: docker compose --env-file .vibetree/env up");
+            println!("[+] Environment file created at .vibetree/env");
+            println!("    Use with process orchestrators like: docker compose --env-file .vibetree/env up");
         }
         println!(
-            "🌿 Current branch '{}' remains active in repository root",
+            "[>] Current branch '{}' remains active in repository root",
             current_branch
         );
         println!(
-            "📁 Future worktrees will be created in {}/",
+            "[/] Future worktrees will be created in {}/",
             self.config.project_config.branches_dir
         );
 
@@ -238,7 +238,7 @@ impl VibeTreeApp {
 
         // Check if rule already exists
         if content.lines().any(|line| line.trim() == branches_rule) {
-            println!("📝 .gitignore already contains {} rule", branches_rule);
+            println!("[=] .gitignore already contains {} rule", branches_rule);
             return Ok(());
         }
 
@@ -252,7 +252,7 @@ impl VibeTreeApp {
             format!("Failed to update .gitignore: {}", gitignore_path.display())
         })?;
 
-        println!("📝 Added {} to .gitignore", branches_rule);
+        println!("[+] Added {} to .gitignore", branches_rule);
         Ok(())
     }
 
@@ -354,13 +354,13 @@ impl VibeTreeApp {
             // Remove from configuration since this was just a dry run
             self.config.remove_worktree(&branch_name)?;
 
-            println!("🔍 Dry run - would create worktree '{}' with:", branch_name);
-            println!("  📁 Path: {}", worktree_path.display());
+            println!("[?] Dry run - would create worktree '{}' with:", branch_name);
+            println!("  [/] Path: {}", worktree_path.display());
             println!(
-                "  🌿 Base branch: {}",
+                "  [>] Base branch: {}",
                 from_branch.as_deref().unwrap_or("HEAD")
             );
-            println!("  🔌 Ports:");
+            println!("  [#] Ports:");
             for (service, port) in &ports {
                 println!("    {} → {}", service, port);
             }
@@ -399,16 +399,16 @@ impl VibeTreeApp {
         self.save_config()?;
 
         println!(
-            "✅ Created worktree '{}' at {}",
+            "[✓] Created worktree '{}' at {}",
             branch_name,
             worktree_path.display()
         );
-        println!("🔌 Allocated ports:");
+        println!("[#] Allocated ports:");
         for (service, port) in &ports {
             println!("  {} → {}", service, port);
         }
-        println!("🚀 Environment file created at .vibetree/env");
-        println!("   Use with process orchestrators like: docker compose --env-file .vibetree/env up");
+        println!("[+] Environment file created at .vibetree/env");
+        println!("    Use with process orchestrators like: docker compose --env-file .vibetree/env up");
 
         Ok(())
     }
@@ -448,7 +448,7 @@ impl VibeTreeApp {
             .join(&branch_name);
 
         if !force && prompt_for_confirmation {
-            println!("⚠️  Make sure no important processes are using the allocated ports before removing");
+            println!("[!] Make sure no important processes are using the allocated ports before removing");
             print!("Are you sure you want to remove worktree '{}'? (y/N): ", branch_name);
             io::stdout().flush().context("Failed to flush stdout")?;
             
@@ -458,7 +458,7 @@ impl VibeTreeApp {
             
             let input = input.trim().to_lowercase();
             if input != "y" && input != "yes" {
-                println!("❌ Cancelled removal of worktree '{}'", branch_name);
+                println!("[X] Cancelled removal of worktree '{}'", branch_name);
                 return Ok(());
             }
         }
@@ -482,9 +482,9 @@ impl VibeTreeApp {
             })?;
         }
 
-        println!("✅ Removed worktree '{}'", branch_name);
+        println!("[✓] Removed worktree '{}'", branch_name);
         if keep_branch {
-            println!("🌿 Kept git branch '{}'", branch_name);
+            println!("[>] Kept git branch '{}'", branch_name);
         }
 
         Ok(())
