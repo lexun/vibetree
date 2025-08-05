@@ -2,15 +2,3 @@ version = "1"
 main_branch = "main"
 branches_dir = "branches"
 env_file_path = ".vibetree/env"
-
-[[variables]]
-name = "WEB_PORT"
-port = 3000
-
-[[variables]]
-name = "API_PORT"
-port = 8080
-
-[[variables]]
-name = "DB_PORT"
-port = 5432

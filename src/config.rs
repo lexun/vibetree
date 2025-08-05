@@ -356,7 +356,6 @@ impl VibeTreeProjectConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
     #[test]
     fn test_default_config() {
@@ -369,10 +368,14 @@ mod tests {
 
     #[test]
     fn test_save_and_load_config() -> Result<()> {
-        let _temp_dir = TempDir::new()?;
-        // This test is now more complex since we have separate files
-        // For now, let's test the basic functionality
-        let mut config = VibeTreeConfig::default();
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new()?;
+        // Create a VibeTreeConfig with a specific parent to avoid git dependency
+        let mut config = VibeTreeConfig {
+            project_config: VibeTreeProjectConfig::default(),
+            branches_config: VibeTreeBranchesConfig::default(),
+            parent_override: Some(temp_dir.path().to_path_buf()),
+        };
         config.add_worktree("test-branch".to_string(), None)?;
 
         // Test that we can save without error
@@ -386,7 +389,13 @@ mod tests {
 
     #[test]
     fn test_port_allocation() -> Result<()> {
-        let mut config = VibeTreeConfig::default();
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new()?;
+        let mut config = VibeTreeConfig {
+            project_config: VibeTreeProjectConfig::default(),
+            branches_config: VibeTreeBranchesConfig::default(),
+            parent_override: Some(temp_dir.path().to_path_buf()),
+        };
 
         // Add some variables first
         config.project_config.variables.push(VariableConfig {
@@ -414,7 +423,13 @@ mod tests {
 
     #[test]
     fn test_remove_worktree() -> Result<()> {
-        let mut config = VibeTreeConfig::default();
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new()?;
+        let mut config = VibeTreeConfig {
+            project_config: VibeTreeProjectConfig::default(),
+            branches_config: VibeTreeBranchesConfig::default(),
+            parent_override: Some(temp_dir.path().to_path_buf()),
+        };
 
         // Add a variable for testing
         config.project_config.variables.push(VariableConfig {
@@ -448,7 +463,13 @@ mod tests {
 
     #[test]
     fn test_duplicate_worktree_error() {
-        let mut config = VibeTreeConfig::default();
+        use tempfile::TempDir;
+        let temp_dir = TempDir::new().unwrap();
+        let mut config = VibeTreeConfig {
+            project_config: VibeTreeProjectConfig::default(),
+            branches_config: VibeTreeBranchesConfig::default(),
+            parent_override: Some(temp_dir.path().to_path_buf()),
+        };
 
         // Add a variable for testing
         config.project_config.variables.push(VariableConfig {

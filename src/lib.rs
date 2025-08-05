@@ -135,7 +135,7 @@ impl VibeTreeApp {
 
         println!(
             "[✓] Initialized vibetree configuration at {}",
-            VibeTreeConfig::get_project_config_path().unwrap().display()
+            self.vibetree_parent.join("vibetree.toml").display()
         );
         println!(
             "[*] Configured variables: {}",
@@ -704,7 +704,8 @@ mod tests {
 
         // Variables should be updated after init
         // Verify variables were configured
-        assert!(VibeTreeConfig::get_project_config_path().unwrap().exists());
+        let config_path = app.vibetree_parent.join("vibetree.toml");
+        assert!(config_path.exists());
         assert!(app.config.project_config.variables.iter().any(|v| v.name == "POSTGRES_PORT"));
         assert!(app.config.project_config.variables.iter().any(|v| v.name == "REDIS_PORT"));
 
