@@ -50,7 +50,7 @@ pub enum Commands {
         #[arg(help = "Name of the branch/worktree to remove")]
         branch_name: String,
 
-        #[arg(long, help = "Remove even if processes are running on allocated ports")]
+        #[arg(short, long, help = "Remove even if processes are running on allocated ports")]
         force: bool,
 
         #[arg(long, help = "Remove worktree but keep git branch")]
