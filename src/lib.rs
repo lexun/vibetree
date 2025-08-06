@@ -104,8 +104,7 @@ impl VibeTreeApp {
 
         // Add or update the main branch to branches configuration if variables are configured
         if !self.config.project_config.variables.is_empty() {
-            let current_dir = std::env::current_dir().context("Failed to get current directory")?;
-            let main_branch = GitManager::get_current_branch(&current_dir)
+            let main_branch = GitManager::get_current_branch(&self.vibetree_parent)
                 .unwrap_or_else(|_| self.config.project_config.main_branch.clone());
 
             // Create port mapping for main branch using base variable ports
@@ -119,7 +118,7 @@ impl VibeTreeApp {
                 .add_or_update_worktree(main_branch.clone(), Some(main_branch_ports.clone()))?;
 
             // Generate env file for the main worktree
-            let env_file_path = self.config.get_env_file_path(&current_dir);
+            let env_file_path = self.config.get_env_file_path(&self.vibetree_parent);
             EnvFileGenerator::generate_env_file(&env_file_path, &main_branch, &main_branch_ports)
                 .context("Failed to generate environment file for main worktree")?;
         }
@@ -235,7 +234,7 @@ impl VibeTreeApp {
                 .add_or_update_worktree(current_branch.clone(), Some(main_branch_ports.clone()))?;
 
             // Generate env file for the main worktree
-            let env_file_path = self.config.get_env_file_path(&current_dir);
+            let env_file_path = self.config.get_env_file_path(&self.vibetree_parent);
             EnvFileGenerator::generate_env_file(
                 &env_file_path,
                 &current_branch,
