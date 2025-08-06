@@ -8,9 +8,12 @@
 
 pub mod cli;
 pub mod config;
+pub mod display;
 pub mod env;
 pub mod git;
 pub mod ports;
+pub mod sync;
+pub mod validation;
 
 /// Current version of vibetree from Cargo.toml
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -18,27 +21,18 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 // Re-export public types for external use
 pub use cli::{Cli, Commands, OutputFormat};
 pub use config::{VariableConfig, VibeTreeConfig, WorktreeConfig};
+pub use display::WorktreeDisplayData;
 pub use env::EnvFileGenerator;
 pub use git::{DiscoveredWorktree, GitManager, WorktreeValidation};
+pub use validation::{ConfigValidator, ValidationResult};
 
 use anyhow::{Context, Result};
 use log::{info, warn};
-use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
 pub use ports::PortManager;
-
-/// Helper struct for formatting worktree data across different output formats
-#[derive(Debug, Serialize)]
-pub struct WorktreeDisplayData {
-    pub name: String,
-    pub status: String,
-    pub ports: HashMap<String, u16>,
-    #[serde(skip)]
-    pub ports_display: String,
-}
 
 /// Main application context for vibetree operations
 pub struct VibeTreeApp {
@@ -570,109 +564,16 @@ impl VibeTreeApp {
 
     /// List all worktrees and their configurations
     pub fn list_worktrees(&self, format: Option<OutputFormat>) -> Result<()> {
-        let format = format.unwrap_or(OutputFormat::Table);
-
-        match format {
-            OutputFormat::Table => self.list_worktrees_table(),
-            OutputFormat::Json => self.list_worktrees_json(),
-            OutputFormat::Yaml => self.list_worktrees_yaml(),
-        }
-    }
-
-    fn list_worktrees_table(&self) -> Result<()> {
-        let worktree_data = self.collect_worktree_data()?;
-
-        if worktree_data.is_empty() {
-            println!("No worktrees configured");
-            return Ok(());
-        }
-
-        println!(
-            "{:<20} {:<15} {:<15} {:<50}",
-            "Name", "Branch", "Status", "Ports"
-        );
-        println!("{}", "-".repeat(100));
-
-        for data in worktree_data {
-            println!(
-                "{:<20} {:<15} {:<15} {:<50}",
-                data.name, data.name, data.status, data.ports_display
-            );
-        }
-
-        Ok(())
-    }
-
-    fn list_worktrees_json(&self) -> Result<()> {
-        let worktree_data = self.collect_worktree_data()?;
-
-        let output: HashMap<&str, &WorktreeDisplayData> = worktree_data
-            .iter()
-            .map(|data| (data.name.as_str(), data))
-            .collect();
-
-        let json = serde_json::to_string_pretty(&output)
-            .context("Failed to serialize worktree data to JSON")?;
-        println!("{}", json);
-        Ok(())
-    }
-
-    fn list_worktrees_yaml(&self) -> Result<()> {
-        let worktree_data = self.collect_worktree_data()?;
-
-        let output: HashMap<&str, &WorktreeDisplayData> = worktree_data
-            .iter()
-            .map(|data| (data.name.as_str(), data))
-            .collect();
-
-        let yaml =
-            serde_yaml::to_string(&output).context("Failed to serialize worktree data to YAML")?;
-        print!("{}", yaml);
-        Ok(())
+        let display_manager =
+            crate::display::DisplayManager::new(&self.config, &self.vibetree_parent);
+        display_manager.list_worktrees(format)
     }
 
     /// Collect worktree data with validation status for display
     pub fn collect_worktree_data(&self) -> Result<Vec<WorktreeDisplayData>> {
-        let mut data = Vec::new();
-
-        for (name, worktree) in &self.config.branches_config.worktrees {
-            let worktree_path = if *name == self.config.project_config.main_branch {
-                // Main branch lives at repo root
-                self.vibetree_parent.clone()
-            } else {
-                // Other branches live in branches directory
-                self.vibetree_parent
-                    .join(&self.config.project_config.branches_dir)
-                    .join(name)
-            };
-            let validation = GitManager::validate_worktree_state(&worktree_path)?;
-
-            let status = if !validation.exists {
-                "Missing"
-            } else if !validation.is_git_worktree {
-                "Not Git"
-            } else if !validation.has_env_file {
-                "No Env"
-            } else {
-                "OK"
-            };
-
-            let ports_display = worktree
-                .ports
-                .iter()
-                .map(|(service, port)| format!("{}:{}", service, port))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            data.push(WorktreeDisplayData {
-                name: name.clone(),
-                status: status.to_string(),
-                ports: worktree.ports.clone(),
-                ports_display,
-            });
-        }
-
-        Ok(data)
+        let display_manager =
+            crate::display::DisplayManager::new(&self.config, &self.vibetree_parent);
+        display_manager.collect_worktree_data()
     }
 
     fn save_config(&self) -> Result<()> {
@@ -696,347 +597,9 @@ impl VibeTreeApp {
 
     /// Synchronize configuration and discover orphaned worktrees
     pub fn sync(&mut self, dry_run: bool) -> Result<()> {
-        info!("Synchronizing vibetree configuration");
-
-        let repo_path = GitManager::find_repo_root(&self.vibetree_parent)
-            .context("Not inside a git repository")?;
-
-        // Discover all git worktrees
-        let discovered_worktrees = GitManager::discover_worktrees(&repo_path)?;
-        let branches_dir = self
-            .vibetree_parent
-            .join(&self.config.project_config.branches_dir);
-
-        let mut changes_needed = false;
-        let mut orphaned_worktrees = Vec::new();
-        let mut missing_worktrees = Vec::new();
-        let mut config_mismatches = Vec::new();
-
-        // Check for orphaned git worktrees (not in our config)
-        for discovered in &discovered_worktrees {
-            if let Some(branch_name) = &discovered.branch {
-                // Skip bare and detached worktrees
-                if discovered.is_bare || discovered.is_detached {
-                    continue;
-                }
-
-                // Handle main worktree (at repo root) and branch worktrees (in branches dir) differently
-                let is_main_worktree = branch_name == &self.config.project_config.main_branch;
-
-                // Use canonical paths to handle symlink differences (like /var vs /private/var on macOS)
-                let is_branch_worktree =
-                    match (discovered.path.canonicalize(), branches_dir.canonicalize()) {
-                        (Ok(discovered_canonical), Ok(branches_canonical)) => {
-                            discovered_canonical.starts_with(&branches_canonical)
-                        }
-                        _ => discovered.path.starts_with(&branches_dir), // fallback to original logic
-                    };
-
-                if (is_main_worktree || is_branch_worktree)
-                    && !self
-                        .config
-                        .branches_config
-                        .worktrees
-                        .contains_key(branch_name)
-                {
-                    orphaned_worktrees.push((branch_name.clone(), discovered.path.clone()));
-                    changes_needed = true;
-                }
-            }
-        }
-
-        // Check for missing worktrees (in config but not in git)
-        for (branch_name, _) in &self.config.branches_config.worktrees {
-            // Simply check if this branch exists anywhere in git worktrees
-            let found = discovered_worktrees
-                .iter()
-                .any(|wt| wt.branch.as_ref() == Some(branch_name));
-
-            if !found {
-                missing_worktrees.push(branch_name.clone());
-                changes_needed = true;
-            }
-        }
-
-        // Check for config mismatches (variable changes)
-        for (branch_name, worktree_config) in &self.config.branches_config.worktrees {
-            // Check if all configured variables exist in current project config
-            let current_var_names: std::collections::HashSet<_> = self
-                .config
-                .project_config
-                .variables
-                .iter()
-                .map(|v| &v.name)
-                .collect();
-            let worktree_var_names: std::collections::HashSet<_> =
-                worktree_config.ports.keys().collect();
-
-            if current_var_names != worktree_var_names {
-                config_mismatches.push(branch_name.clone());
-                changes_needed = true;
-            }
-        }
-
-        if !changes_needed {
-            println!("[✓] Configuration is synchronized");
-            // Even if no config changes, ensure all env files are up to date
-            let mut env_errors = Vec::new();
-            for (branch_name, worktree_config) in &self.config.branches_config.worktrees {
-                let worktree_path = if *branch_name == self.config.project_config.main_branch {
-                    self.vibetree_parent.clone()
-                } else {
-                    branches_dir.join(branch_name)
-                };
-                let env_file_path = self.config.get_env_file_path(&worktree_path);
-
-                // Always regenerate env files to ensure they're current
-                if worktree_path.exists() {
-                    if let Err(e) = EnvFileGenerator::generate_env_file(
-                        &env_file_path,
-                        branch_name,
-                        &worktree_config.ports,
-                    ) {
-                        env_errors.push(format!(
-                            "Failed to update env file for '{}': {}",
-                            branch_name, e
-                        ));
-                    }
-                }
-            }
-
-            if !env_errors.is_empty() {
-                println!(
-                    "[!] Environment file synchronization completed with {} errors:",
-                    env_errors.len()
-                );
-                for error in env_errors {
-                    println!("  [✗] {}", error);
-                }
-            }
-            return Ok(());
-        }
-
-        // Report what would be done
-        println!("[!] Synchronization needed:");
-
-        if !orphaned_worktrees.is_empty() {
-            println!("  [+] Orphaned worktrees to add to config:");
-            for (branch, path) in &orphaned_worktrees {
-                println!("    {} ({})", branch, path.display());
-            }
-        }
-
-        if !missing_worktrees.is_empty() {
-            println!("  [-] Missing worktrees to remove from config:");
-            for branch in &missing_worktrees {
-                println!("    {}", branch);
-            }
-        }
-
-        if !config_mismatches.is_empty() {
-            println!("  [~] Worktrees with outdated variable configuration:");
-            for branch in &config_mismatches {
-                println!("    {}", branch);
-            }
-        }
-
-        if dry_run {
-            println!("[?] Dry run - no changes made");
-            return Ok(());
-        }
-
-        // Apply changes
-        let mut sync_errors = Vec::new();
-
-        // Add orphaned worktrees to config
-        for (branch_name, worktree_path) in orphaned_worktrees {
-            println!(
-                "[+] Adding orphaned worktree '{}' to configuration",
-                branch_name
-            );
-
-            let ports = if branch_name == self.config.project_config.main_branch {
-                // For main branch, we need to ensure it gets the base ports
-                // First, temporarily remove any conflicting worktree that has those ports
-                let mut conflicting_worktree = None;
-                let base_ports: std::collections::HashSet<u16> = self
-                    .config
-                    .project_config
-                    .variables
-                    .iter()
-                    .map(|v| v.port)
-                    .collect();
-
-                for (existing_name, existing_config) in &self.config.branches_config.worktrees {
-                    if existing_name != &branch_name {
-                        let existing_ports: std::collections::HashSet<u16> =
-                            existing_config.ports.values().cloned().collect();
-                        if !base_ports.is_disjoint(&existing_ports) {
-                            conflicting_worktree = Some(existing_name.clone());
-                            break;
-                        }
-                    }
-                }
-
-                // If there's a conflict, reassign the conflicting worktree first
-                if let Some(conflicting_name) = conflicting_worktree {
-                    println!(
-                        "  [~] Reassigning ports for '{}' to avoid conflict with main branch",
-                        conflicting_name
-                    );
-                    match self
-                        .config
-                        .add_or_update_worktree(conflicting_name.clone(), None)
-                    {
-                        Ok(_) => {}
-                        Err(e) => {
-                            sync_errors.push(format!(
-                                "Failed to reassign ports for '{}': {}",
-                                conflicting_name, e
-                            ));
-                        }
-                    }
-                }
-
-                // Now assign base ports to main branch
-                let mut main_ports = std::collections::HashMap::new();
-                for variable in &self.config.project_config.variables {
-                    main_ports.insert(variable.name.clone(), variable.port);
-                }
-
-                match self
-                    .config
-                    .add_or_update_worktree(branch_name.clone(), Some(main_ports))
-                {
-                    Ok(ports) => ports,
-                    Err(e) => {
-                        sync_errors.push(format!("Failed to add main worktree: {}", e));
-                        continue;
-                    }
-                }
-            } else {
-                // For other worktrees, allocate ports normally
-                match self.config.add_worktree(branch_name.clone(), None) {
-                    Ok(ports) => ports,
-                    Err(e) => {
-                        sync_errors
-                            .push(format!("Failed to add worktree '{}': {}", branch_name, e));
-                        continue;
-                    }
-                }
-            };
-
-            // Generate env file for the discovered worktree
-            let env_file_path = self.config.get_env_file_path(&worktree_path);
-            if let Err(e) =
-                EnvFileGenerator::generate_env_file(&env_file_path, &branch_name, &ports)
-            {
-                sync_errors.push(format!(
-                    "Failed to generate env file for '{}': {}",
-                    branch_name, e
-                ));
-            } else {
-                println!(
-                    "  [+] Generated environment file at {}",
-                    env_file_path.display()
-                );
-            }
-        }
-
-        // Remove missing worktrees from config
-        for branch_name in missing_worktrees {
-            println!(
-                "[-] Removing missing worktree '{}' from configuration",
-                branch_name
-            );
-            if let Err(e) = self.config.remove_worktree(&branch_name) {
-                sync_errors.push(format!(
-                    "Failed to remove worktree '{}': {}",
-                    branch_name, e
-                ));
-            }
-        }
-
-        // Update config mismatches and regenerate env files for all worktrees
-        for branch_name in config_mismatches {
-            println!("[~] Updating variable configuration for '{}'", branch_name);
-            match self
-                .config
-                .add_or_update_worktree(branch_name.clone(), None)
-            {
-                Ok(ports) => {
-                    // Update env file with new port configuration
-                    let worktree_path = if branch_name == self.config.project_config.main_branch {
-                        self.vibetree_parent.clone()
-                    } else {
-                        branches_dir.join(&branch_name)
-                    };
-                    let env_file_path = self.config.get_env_file_path(&worktree_path);
-                    if let Err(e) =
-                        EnvFileGenerator::generate_env_file(&env_file_path, &branch_name, &ports)
-                    {
-                        sync_errors.push(format!(
-                            "Failed to update env file for '{}': {}",
-                            branch_name, e
-                        ));
-                    } else {
-                        println!(
-                            "  [~] Updated environment file at {}",
-                            env_file_path.display()
-                        );
-                    }
-                }
-                Err(e) => {
-                    sync_errors.push(format!(
-                        "Failed to update worktree '{}': {}",
-                        branch_name, e
-                    ));
-                }
-            }
-        }
-
-        // Also regenerate env files for all worktrees that had their ports changed
-        for (branch_name, worktree_config) in &self.config.branches_config.worktrees {
-            let worktree_path = if *branch_name == self.config.project_config.main_branch {
-                self.vibetree_parent.clone()
-            } else {
-                branches_dir.join(branch_name)
-            };
-            let env_file_path = self.config.get_env_file_path(&worktree_path);
-
-            // Only update if the env file exists or if the worktree directory exists
-            if env_file_path.exists() || worktree_path.exists() {
-                if let Err(e) = EnvFileGenerator::generate_env_file(
-                    &env_file_path,
-                    branch_name,
-                    &worktree_config.ports,
-                ) {
-                    sync_errors.push(format!(
-                        "Failed to update env file for '{}': {}",
-                        branch_name, e
-                    ));
-                }
-            }
-        }
-
-        // Save configuration
-        if let Err(e) = self.save_config() {
-            sync_errors.push(format!("Failed to save configuration: {}", e));
-        }
-
-        if sync_errors.is_empty() {
-            println!("[✓] Synchronization completed successfully");
-        } else {
-            println!(
-                "[!] Synchronization completed with {} errors:",
-                sync_errors.len()
-            );
-            for error in sync_errors {
-                println!("  [✗] {}", error);
-            }
-        }
-
-        Ok(())
+        let mut sync_manager =
+            crate::sync::SyncManager::new(&mut self.config, &self.vibetree_parent);
+        sync_manager.sync(dry_run)
     }
 
     /// Internal method for testing - bypasses confirmation prompts
