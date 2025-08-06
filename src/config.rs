@@ -74,7 +74,6 @@ impl Default for VibeTreeBranchesConfig {
     }
 }
 
-
 impl VibeTreeConfig {
     pub fn load_or_create() -> Result<Self> {
         Self::load_or_create_with_parent(None)
@@ -216,7 +215,9 @@ impl VibeTreeConfig {
             // Check for conflicts with existing worktrees (excluding the one we're updating)
             for (variable, &port) in custom.iter() {
                 for (existing_name, existing_worktree) in &self.branches_config.worktrees {
-                    if existing_name != &name && existing_worktree.ports.values().any(|p| *p == port) {
+                    if existing_name != &name
+                        && existing_worktree.ports.values().any(|p| *p == port)
+                    {
                         anyhow::bail!(
                             "Port {} (for variable '{}') is already allocated to worktree '{}'",
                             port,
@@ -451,13 +452,13 @@ mod tests {
     fn test_custom_env_file_path() -> Result<()> {
         let mut config = VibeTreeConfig::default();
         config.project_config.env_file_path = "custom/.env".to_string();
-        
+
         let temp_dir = tempfile::TempDir::new()?;
         let worktree_path = temp_dir.path();
-        
+
         let env_file_path = config.get_env_file_path(worktree_path);
         assert_eq!(env_file_path, worktree_path.join("custom/.env"));
-        
+
         Ok(())
     }
 

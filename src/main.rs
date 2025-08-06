@@ -56,6 +56,10 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::List { format } => {
             app.list_worktrees(format)?;
         }
+
+        Commands::Sync { dry_run } => {
+            app.sync(dry_run)?;
+        }
     }
 
     Ok(())

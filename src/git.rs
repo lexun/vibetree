@@ -142,6 +142,65 @@ impl GitManager {
 
         Ok(validation)
     }
+
+    /// Discover all git worktrees in the repository
+    pub fn discover_worktrees(repo_path: &Path) -> Result<Vec<DiscoveredWorktree>> {
+        use std::process::Command;
+
+        let output = Command::new("git")
+            .args(["worktree", "list", "--porcelain"])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to execute git worktree list")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Git worktree list failed: {}", stderr);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut worktrees = Vec::new();
+        let mut current_worktree: Option<DiscoveredWorktree> = None;
+
+        for line in stdout.lines() {
+            if line.starts_with("worktree ") {
+                // Save previous worktree if exists
+                if let Some(wt) = current_worktree.take() {
+                    worktrees.push(wt);
+                }
+
+                let path = line.strip_prefix("worktree ").unwrap_or("");
+                current_worktree = Some(DiscoveredWorktree {
+                    path: PathBuf::from(path),
+                    branch: None,
+                    is_bare: false,
+                    is_detached: false,
+                });
+            } else if line.starts_with("branch ") {
+                if let Some(ref mut wt) = current_worktree {
+                    let branch = line.strip_prefix("branch ").unwrap_or("");
+                    // Strip refs/heads/ prefix if present to get just the branch name
+                    let branch_name = branch.strip_prefix("refs/heads/").unwrap_or(branch);
+                    wt.branch = Some(branch_name.to_string());
+                }
+            } else if line == "bare" {
+                if let Some(ref mut wt) = current_worktree {
+                    wt.is_bare = true;
+                }
+            } else if line == "detached" {
+                if let Some(ref mut wt) = current_worktree {
+                    wt.is_detached = true;
+                }
+            }
+        }
+
+        // Don't forget the last worktree
+        if let Some(wt) = current_worktree {
+            worktrees.push(wt);
+        }
+
+        Ok(worktrees)
+    }
 }
 
 #[derive(Debug)]
@@ -151,6 +210,14 @@ pub struct WorktreeValidation {
     pub has_vibetree_dir: bool,
     pub has_env_file: bool,
     pub branch_name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiscoveredWorktree {
+    pub path: PathBuf,
+    pub branch: Option<String>,
+    pub is_bare: bool,
+    pub is_detached: bool,
 }
 
 #[cfg(test)]

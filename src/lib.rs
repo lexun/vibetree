@@ -19,7 +19,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub use cli::{Cli, Commands, OutputFormat};
 pub use config::{VariableConfig, VibeTreeConfig, WorktreeConfig};
 pub use env::EnvFileGenerator;
-pub use git::{GitManager, WorktreeValidation};
+pub use git::{DiscoveredWorktree, GitManager, WorktreeValidation};
 
 use anyhow::{Context, Result};
 use log::{info, warn};
@@ -32,12 +32,12 @@ pub use ports::PortManager;
 
 /// Helper struct for formatting worktree data across different output formats
 #[derive(Debug, Serialize)]
-struct WorktreeDisplayData {
-    name: String,
-    status: String,
-    ports: HashMap<String, u16>,
+pub struct WorktreeDisplayData {
+    pub name: String,
+    pub status: String,
+    pub ports: HashMap<String, u16>,
     #[serde(skip)]
-    ports_display: String,
+    pub ports_display: String,
 }
 
 /// Main application context for vibetree operations
@@ -83,21 +83,23 @@ impl VibeTreeApp {
         if !variables.is_empty() {
             for variable_spec in &variables {
                 if let Some((variable, port_str)) = variable_spec.split_once(':') {
-                    let port = port_str.parse::<u16>()
-                        .with_context(|| format!("Invalid port '{}' for variable '{}'", port_str, variable))?;
-                    
+                    let port = port_str.parse::<u16>().with_context(|| {
+                        format!("Invalid port '{}' for variable '{}'", port_str, variable)
+                    })?;
+
                     // Convert variable name to env var name (uppercase + _PORT)
                     let env_var_name = format!("{}_PORT", variable.to_uppercase());
-                    
+
                     self.config.project_config.variables.push(VariableConfig {
                         name: env_var_name,
                         port,
                     });
                 } else {
                     // Variable without port - use default incremental port
-                    let default_port = 8000 + (self.config.project_config.variables.len() as u16 * 100);
+                    let default_port =
+                        8000 + (self.config.project_config.variables.len() as u16 * 100);
                     let env_var_name = format!("{}_PORT", variable_spec.to_uppercase());
-                    
+
                     self.config.project_config.variables.push(VariableConfig {
                         name: env_var_name,
                         port: default_port,
@@ -111,24 +113,21 @@ impl VibeTreeApp {
             let current_dir = std::env::current_dir().context("Failed to get current directory")?;
             let main_branch = GitManager::get_current_branch(&current_dir)
                 .unwrap_or_else(|_| self.config.project_config.main_branch.clone());
-            
+
             // Create port mapping for main branch using base variable ports
             let mut main_branch_ports = HashMap::new();
             for variable in &self.config.project_config.variables {
                 main_branch_ports.insert(variable.name.clone(), variable.port);
             }
-            
+
             // Add or update main branch with the base variable ports to branches.toml
-            self.config.add_or_update_worktree(main_branch.clone(), Some(main_branch_ports.clone()))?;
-            
+            self.config
+                .add_or_update_worktree(main_branch.clone(), Some(main_branch_ports.clone()))?;
+
             // Generate env file for the main worktree
             let env_file_path = self.config.get_env_file_path(&current_dir);
-            EnvFileGenerator::generate_env_file(
-                &env_file_path,
-                &main_branch,
-                &main_branch_ports,
-            )
-            .context("Failed to generate environment file for main worktree")?;
+            EnvFileGenerator::generate_env_file(&env_file_path, &main_branch, &main_branch_ports)
+                .context("Failed to generate environment file for main worktree")?;
         }
 
         self.save_config()?;
@@ -139,14 +138,19 @@ impl VibeTreeApp {
         );
         println!(
             "[*] Configured variables: {}",
-            self.config.project_config.variables.iter()
+            self.config
+                .project_config
+                .variables
+                .iter()
                 .map(|v| format!("{}:{}", v.name, v.port))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
         if !self.config.project_config.variables.is_empty() {
             println!("[+] Environment file created at .vibetree/env");
-            println!("    Use with process orchestrators like: docker compose --env-file .vibetree/env up");
+            println!(
+                "    Use with process orchestrators like: docker compose --env-file .vibetree/env up"
+            );
         }
         println!("[!] Add '.vibetree/' to your worktree .gitignore files");
 
@@ -199,21 +203,23 @@ impl VibeTreeApp {
         if !variables.is_empty() {
             for variable_spec in variables {
                 if let Some((variable, port_str)) = variable_spec.split_once(':') {
-                    let port = port_str.parse::<u16>()
-                        .with_context(|| format!("Invalid port '{}' for variable '{}'", port_str, variable))?;
-                    
+                    let port = port_str.parse::<u16>().with_context(|| {
+                        format!("Invalid port '{}' for variable '{}'", port_str, variable)
+                    })?;
+
                     // Convert variable name to env var name (uppercase + _PORT)
                     let env_var_name = format!("{}_PORT", variable.to_uppercase());
-                    
+
                     self.config.project_config.variables.push(VariableConfig {
                         name: env_var_name,
                         port,
                     });
                 } else {
                     // Variable without port - use default incremental port
-                    let default_port = 8000 + (self.config.project_config.variables.len() as u16 * 100);
+                    let default_port =
+                        8000 + (self.config.project_config.variables.len() as u16 * 100);
                     let env_var_name = format!("{}_PORT", variable_spec.to_uppercase());
-                    
+
                     self.config.project_config.variables.push(VariableConfig {
                         name: env_var_name,
                         port: default_port,
@@ -229,10 +235,11 @@ impl VibeTreeApp {
             for variable in &self.config.project_config.variables {
                 main_branch_ports.insert(variable.name.clone(), variable.port);
             }
-            
+
             // Add or update main branch with the base variable ports to branches.toml
-            self.config.add_or_update_worktree(current_branch.clone(), Some(main_branch_ports.clone()))?;
-            
+            self.config
+                .add_or_update_worktree(current_branch.clone(), Some(main_branch_ports.clone()))?;
+
             // Generate env file for the main worktree
             let env_file_path = self.config.get_env_file_path(&current_dir);
             EnvFileGenerator::generate_env_file(
@@ -249,14 +256,19 @@ impl VibeTreeApp {
         println!("[✓] Successfully converted repository to vibetree-managed structure");
         println!(
             "[*] Configured variables: {}",
-            self.config.project_config.variables.iter()
+            self.config
+                .project_config
+                .variables
+                .iter()
                 .map(|v| format!("{}:{}", v.name, v.port))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
         if !self.config.project_config.variables.is_empty() {
             println!("[+] Environment file created at .vibetree/env");
-            println!("    Use with process orchestrators like: docker compose --env-file .vibetree/env up");
+            println!(
+                "    Use with process orchestrators like: docker compose --env-file .vibetree/env up"
+            );
         }
         println!(
             "[>] Current branch '{}' remains active in repository root",
@@ -358,7 +370,10 @@ impl VibeTreeApp {
                 anyhow::bail!(
                     "Expected {} ports for variables: {}",
                     self.config.project_config.variables.len(),
-                    self.config.project_config.variables.iter()
+                    self.config
+                        .project_config
+                        .variables
+                        .iter()
                         .map(|v| v.name.clone())
                         .collect::<Vec<_>>()
                         .join(", ")
@@ -366,7 +381,13 @@ impl VibeTreeApp {
             }
 
             let mut port_map = HashMap::new();
-            for (variable, port) in self.config.project_config.variables.iter().zip(custom.iter()) {
+            for (variable, port) in self
+                .config
+                .project_config
+                .variables
+                .iter()
+                .zip(custom.iter())
+            {
                 port_map.insert(variable.name.clone(), *port);
             }
             Some(port_map)
@@ -404,7 +425,10 @@ impl VibeTreeApp {
             // Remove from configuration since this was just a dry run
             self.config.remove_worktree(&branch_name)?;
 
-            println!("[?] Dry run - would create worktree '{}' with:", branch_name);
+            println!(
+                "[?] Dry run - would create worktree '{}' with:",
+                branch_name
+            );
             println!("  [/] Path: {}", worktree_path.display());
             println!(
                 "  [>] Base branch: {}",
@@ -430,12 +454,8 @@ impl VibeTreeApp {
 
         // Generate environment file
         let env_file_path = self.config.get_env_file_path(&worktree_path);
-        EnvFileGenerator::generate_env_file(
-            &env_file_path,
-            &branch_name,
-            &ports,
-        )
-        .context("Failed to generate environment file")?;
+        EnvFileGenerator::generate_env_file(&env_file_path, &branch_name, &ports)
+            .context("Failed to generate environment file")?;
 
         // Check and suggest .gitignore update
         if !EnvFileGenerator::suggest_gitignore_update(&worktree_path)? {
@@ -458,7 +478,9 @@ impl VibeTreeApp {
             println!("  {} → {}", variable, port);
         }
         println!("[+] Environment file created at .vibetree/env");
-        println!("    Use with process orchestrators like: docker compose --env-file .vibetree/env up");
+        println!(
+            "    Use with process orchestrators like: docker compose --env-file .vibetree/env up"
+        );
 
         Ok(())
     }
@@ -498,14 +520,20 @@ impl VibeTreeApp {
             .join(&branch_name);
 
         if !force && prompt_for_confirmation {
-            println!("[!] Make sure no important processes are using the allocated ports before removing");
-            print!("Are you sure you want to remove worktree '{}'? (y/N): ", branch_name);
+            println!(
+                "[!] Make sure no important processes are using the allocated ports before removing"
+            );
+            print!(
+                "Are you sure you want to remove worktree '{}'? (y/N): ",
+                branch_name
+            );
             io::stdout().flush().context("Failed to flush stdout")?;
-            
+
             let mut input = String::new();
-            io::stdin().read_line(&mut input)
+            io::stdin()
+                .read_line(&mut input)
                 .context("Failed to read confirmation input")?;
-            
+
             let input = input.trim().to_lowercase();
             if input != "y" && input != "yes" {
                 println!("[X] Cancelled removal of worktree '{}'", branch_name);
@@ -597,21 +625,26 @@ impl VibeTreeApp {
             .map(|data| (data.name.as_str(), data))
             .collect();
 
-        let yaml = serde_yaml::to_string(&output)
-            .context("Failed to serialize worktree data to YAML")?;
+        let yaml =
+            serde_yaml::to_string(&output).context("Failed to serialize worktree data to YAML")?;
         print!("{}", yaml);
         Ok(())
     }
 
     /// Collect worktree data with validation status for display
-    fn collect_worktree_data(&self) -> Result<Vec<WorktreeDisplayData>> {
+    pub fn collect_worktree_data(&self) -> Result<Vec<WorktreeDisplayData>> {
         let mut data = Vec::new();
 
         for (name, worktree) in &self.config.branches_config.worktrees {
-            let worktree_path = self
-                .vibetree_parent
-                .join(&self.config.project_config.branches_dir)
-                .join(name);
+            let worktree_path = if *name == self.config.project_config.main_branch {
+                // Main branch lives at repo root
+                self.vibetree_parent.clone()
+            } else {
+                // Other branches live in branches directory
+                self.vibetree_parent
+                    .join(&self.config.project_config.branches_dir)
+                    .join(name)
+            };
             let validation = GitManager::validate_worktree_state(&worktree_path)?;
 
             let status = if !validation.exists {
@@ -653,6 +686,357 @@ impl VibeTreeApp {
 
     pub fn get_worktrees(&self) -> &std::collections::HashMap<String, WorktreeConfig> {
         &self.config.branches_config.worktrees
+    }
+
+    /// Get mutable access to config for testing
+    #[doc(hidden)]
+    pub fn get_config_mut(&mut self) -> &mut VibeTreeConfig {
+        &mut self.config
+    }
+
+    /// Synchronize configuration and discover orphaned worktrees
+    pub fn sync(&mut self, dry_run: bool) -> Result<()> {
+        info!("Synchronizing vibetree configuration");
+
+        let repo_path = GitManager::find_repo_root(&self.vibetree_parent)
+            .context("Not inside a git repository")?;
+
+        // Discover all git worktrees
+        let discovered_worktrees = GitManager::discover_worktrees(&repo_path)?;
+        let branches_dir = self
+            .vibetree_parent
+            .join(&self.config.project_config.branches_dir);
+
+        let mut changes_needed = false;
+        let mut orphaned_worktrees = Vec::new();
+        let mut missing_worktrees = Vec::new();
+        let mut config_mismatches = Vec::new();
+
+        // Check for orphaned git worktrees (not in our config)
+        for discovered in &discovered_worktrees {
+            if let Some(branch_name) = &discovered.branch {
+                // Skip bare and detached worktrees
+                if discovered.is_bare || discovered.is_detached {
+                    continue;
+                }
+
+                // Handle main worktree (at repo root) and branch worktrees (in branches dir) differently
+                let is_main_worktree = branch_name == &self.config.project_config.main_branch;
+
+                // Use canonical paths to handle symlink differences (like /var vs /private/var on macOS)
+                let is_branch_worktree =
+                    match (discovered.path.canonicalize(), branches_dir.canonicalize()) {
+                        (Ok(discovered_canonical), Ok(branches_canonical)) => {
+                            discovered_canonical.starts_with(&branches_canonical)
+                        }
+                        _ => discovered.path.starts_with(&branches_dir), // fallback to original logic
+                    };
+
+                if (is_main_worktree || is_branch_worktree)
+                    && !self
+                        .config
+                        .branches_config
+                        .worktrees
+                        .contains_key(branch_name)
+                {
+                    orphaned_worktrees.push((branch_name.clone(), discovered.path.clone()));
+                    changes_needed = true;
+                }
+            }
+        }
+
+        // Check for missing worktrees (in config but not in git)
+        for (branch_name, _) in &self.config.branches_config.worktrees {
+            // Simply check if this branch exists anywhere in git worktrees
+            let found = discovered_worktrees
+                .iter()
+                .any(|wt| wt.branch.as_ref() == Some(branch_name));
+
+            if !found {
+                missing_worktrees.push(branch_name.clone());
+                changes_needed = true;
+            }
+        }
+
+        // Check for config mismatches (variable changes)
+        for (branch_name, worktree_config) in &self.config.branches_config.worktrees {
+            // Check if all configured variables exist in current project config
+            let current_var_names: std::collections::HashSet<_> = self
+                .config
+                .project_config
+                .variables
+                .iter()
+                .map(|v| &v.name)
+                .collect();
+            let worktree_var_names: std::collections::HashSet<_> =
+                worktree_config.ports.keys().collect();
+
+            if current_var_names != worktree_var_names {
+                config_mismatches.push(branch_name.clone());
+                changes_needed = true;
+            }
+        }
+
+        if !changes_needed {
+            println!("[✓] Configuration is synchronized");
+            // Even if no config changes, ensure all env files are up to date
+            let mut env_errors = Vec::new();
+            for (branch_name, worktree_config) in &self.config.branches_config.worktrees {
+                let worktree_path = if *branch_name == self.config.project_config.main_branch {
+                    self.vibetree_parent.clone()
+                } else {
+                    branches_dir.join(branch_name)
+                };
+                let env_file_path = self.config.get_env_file_path(&worktree_path);
+
+                // Always regenerate env files to ensure they're current
+                if worktree_path.exists() {
+                    if let Err(e) = EnvFileGenerator::generate_env_file(
+                        &env_file_path,
+                        branch_name,
+                        &worktree_config.ports,
+                    ) {
+                        env_errors.push(format!(
+                            "Failed to update env file for '{}': {}",
+                            branch_name, e
+                        ));
+                    }
+                }
+            }
+
+            if !env_errors.is_empty() {
+                println!(
+                    "[!] Environment file synchronization completed with {} errors:",
+                    env_errors.len()
+                );
+                for error in env_errors {
+                    println!("  [✗] {}", error);
+                }
+            }
+            return Ok(());
+        }
+
+        // Report what would be done
+        println!("[!] Synchronization needed:");
+
+        if !orphaned_worktrees.is_empty() {
+            println!("  [+] Orphaned worktrees to add to config:");
+            for (branch, path) in &orphaned_worktrees {
+                println!("    {} ({})", branch, path.display());
+            }
+        }
+
+        if !missing_worktrees.is_empty() {
+            println!("  [-] Missing worktrees to remove from config:");
+            for branch in &missing_worktrees {
+                println!("    {}", branch);
+            }
+        }
+
+        if !config_mismatches.is_empty() {
+            println!("  [~] Worktrees with outdated variable configuration:");
+            for branch in &config_mismatches {
+                println!("    {}", branch);
+            }
+        }
+
+        if dry_run {
+            println!("[?] Dry run - no changes made");
+            return Ok(());
+        }
+
+        // Apply changes
+        let mut sync_errors = Vec::new();
+
+        // Add orphaned worktrees to config
+        for (branch_name, worktree_path) in orphaned_worktrees {
+            println!(
+                "[+] Adding orphaned worktree '{}' to configuration",
+                branch_name
+            );
+
+            let ports = if branch_name == self.config.project_config.main_branch {
+                // For main branch, we need to ensure it gets the base ports
+                // First, temporarily remove any conflicting worktree that has those ports
+                let mut conflicting_worktree = None;
+                let base_ports: std::collections::HashSet<u16> = self
+                    .config
+                    .project_config
+                    .variables
+                    .iter()
+                    .map(|v| v.port)
+                    .collect();
+
+                for (existing_name, existing_config) in &self.config.branches_config.worktrees {
+                    if existing_name != &branch_name {
+                        let existing_ports: std::collections::HashSet<u16> =
+                            existing_config.ports.values().cloned().collect();
+                        if !base_ports.is_disjoint(&existing_ports) {
+                            conflicting_worktree = Some(existing_name.clone());
+                            break;
+                        }
+                    }
+                }
+
+                // If there's a conflict, reassign the conflicting worktree first
+                if let Some(conflicting_name) = conflicting_worktree {
+                    println!(
+                        "  [~] Reassigning ports for '{}' to avoid conflict with main branch",
+                        conflicting_name
+                    );
+                    match self
+                        .config
+                        .add_or_update_worktree(conflicting_name.clone(), None)
+                    {
+                        Ok(_) => {}
+                        Err(e) => {
+                            sync_errors.push(format!(
+                                "Failed to reassign ports for '{}': {}",
+                                conflicting_name, e
+                            ));
+                        }
+                    }
+                }
+
+                // Now assign base ports to main branch
+                let mut main_ports = std::collections::HashMap::new();
+                for variable in &self.config.project_config.variables {
+                    main_ports.insert(variable.name.clone(), variable.port);
+                }
+
+                match self
+                    .config
+                    .add_or_update_worktree(branch_name.clone(), Some(main_ports))
+                {
+                    Ok(ports) => ports,
+                    Err(e) => {
+                        sync_errors.push(format!("Failed to add main worktree: {}", e));
+                        continue;
+                    }
+                }
+            } else {
+                // For other worktrees, allocate ports normally
+                match self.config.add_worktree(branch_name.clone(), None) {
+                    Ok(ports) => ports,
+                    Err(e) => {
+                        sync_errors
+                            .push(format!("Failed to add worktree '{}': {}", branch_name, e));
+                        continue;
+                    }
+                }
+            };
+
+            // Generate env file for the discovered worktree
+            let env_file_path = self.config.get_env_file_path(&worktree_path);
+            if let Err(e) =
+                EnvFileGenerator::generate_env_file(&env_file_path, &branch_name, &ports)
+            {
+                sync_errors.push(format!(
+                    "Failed to generate env file for '{}': {}",
+                    branch_name, e
+                ));
+            } else {
+                println!(
+                    "  [+] Generated environment file at {}",
+                    env_file_path.display()
+                );
+            }
+        }
+
+        // Remove missing worktrees from config
+        for branch_name in missing_worktrees {
+            println!(
+                "[-] Removing missing worktree '{}' from configuration",
+                branch_name
+            );
+            if let Err(e) = self.config.remove_worktree(&branch_name) {
+                sync_errors.push(format!(
+                    "Failed to remove worktree '{}': {}",
+                    branch_name, e
+                ));
+            }
+        }
+
+        // Update config mismatches and regenerate env files for all worktrees
+        for branch_name in config_mismatches {
+            println!("[~] Updating variable configuration for '{}'", branch_name);
+            match self
+                .config
+                .add_or_update_worktree(branch_name.clone(), None)
+            {
+                Ok(ports) => {
+                    // Update env file with new port configuration
+                    let worktree_path = if branch_name == self.config.project_config.main_branch {
+                        self.vibetree_parent.clone()
+                    } else {
+                        branches_dir.join(&branch_name)
+                    };
+                    let env_file_path = self.config.get_env_file_path(&worktree_path);
+                    if let Err(e) =
+                        EnvFileGenerator::generate_env_file(&env_file_path, &branch_name, &ports)
+                    {
+                        sync_errors.push(format!(
+                            "Failed to update env file for '{}': {}",
+                            branch_name, e
+                        ));
+                    } else {
+                        println!(
+                            "  [~] Updated environment file at {}",
+                            env_file_path.display()
+                        );
+                    }
+                }
+                Err(e) => {
+                    sync_errors.push(format!(
+                        "Failed to update worktree '{}': {}",
+                        branch_name, e
+                    ));
+                }
+            }
+        }
+
+        // Also regenerate env files for all worktrees that had their ports changed
+        for (branch_name, worktree_config) in &self.config.branches_config.worktrees {
+            let worktree_path = if *branch_name == self.config.project_config.main_branch {
+                self.vibetree_parent.clone()
+            } else {
+                branches_dir.join(branch_name)
+            };
+            let env_file_path = self.config.get_env_file_path(&worktree_path);
+
+            // Only update if the env file exists or if the worktree directory exists
+            if env_file_path.exists() || worktree_path.exists() {
+                if let Err(e) = EnvFileGenerator::generate_env_file(
+                    &env_file_path,
+                    branch_name,
+                    &worktree_config.ports,
+                ) {
+                    sync_errors.push(format!(
+                        "Failed to update env file for '{}': {}",
+                        branch_name, e
+                    ));
+                }
+            }
+        }
+
+        // Save configuration
+        if let Err(e) = self.save_config() {
+            sync_errors.push(format!("Failed to save configuration: {}", e));
+        }
+
+        if sync_errors.is_empty() {
+            println!("[✓] Synchronization completed successfully");
+        } else {
+            println!(
+                "[!] Synchronization completed with {} errors:",
+                sync_errors.len()
+            );
+            for error in sync_errors {
+                println!("  [✗] {}", error);
+            }
+        }
+
+        Ok(())
     }
 
     /// Internal method for testing - bypasses confirmation prompts
@@ -706,8 +1090,20 @@ mod tests {
         // Verify variables were configured
         let config_path = app.vibetree_parent.join("vibetree.toml");
         assert!(config_path.exists());
-        assert!(app.config.project_config.variables.iter().any(|v| v.name == "POSTGRES_PORT"));
-        assert!(app.config.project_config.variables.iter().any(|v| v.name == "REDIS_PORT"));
+        assert!(
+            app.config
+                .project_config
+                .variables
+                .iter()
+                .any(|v| v.name == "POSTGRES_PORT")
+        );
+        assert!(
+            app.config
+                .project_config
+                .variables
+                .iter()
+                .any(|v| v.name == "REDIS_PORT")
+        );
 
         Ok(())
     }

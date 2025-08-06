@@ -50,7 +50,11 @@ pub enum Commands {
         #[arg(help = "Name of the branch/worktree to remove")]
         branch_name: String,
 
-        #[arg(short, long, help = "Remove even if processes are running on allocated ports")]
+        #[arg(
+            short,
+            long,
+            help = "Remove even if processes are running on allocated ports"
+        )]
         force: bool,
 
         #[arg(long, help = "Remove worktree but keep git branch")]
@@ -61,6 +65,12 @@ pub enum Commands {
     List {
         #[arg(short, long, help = "Output format")]
         format: Option<OutputFormat>,
+    },
+
+    #[command(about = "Synchronize configuration and discover orphaned worktrees")]
+    Sync {
+        #[arg(long, help = "Show what would be synchronized without making changes")]
+        dry_run: bool,
     },
 }
 
