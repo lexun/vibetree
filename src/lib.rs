@@ -334,15 +334,15 @@ impl VibeTreeApp {
         Ok(())
     }
 
-    /// Create a new worktree with isolated environment
-    pub fn create_worktree(
+    /// Add a new worktree with isolated environment
+    pub fn add_worktree(
         &mut self,
         branch_name: String,
         from_branch: Option<String>,
         custom_values: Option<Vec<u16>>,
         dry_run: bool,
     ) -> Result<()> {
-        info!("Creating worktree: {}", branch_name);
+        info!("Adding worktree: {}", branch_name);
 
         // Validate input
         if branch_name.is_empty() {
@@ -443,10 +443,7 @@ impl VibeTreeApp {
             // Remove from configuration since this was just a dry run
             self.config.remove_worktree(&branch_name)?;
 
-            println!(
-                "[?] Dry run - would create worktree '{}' with:",
-                branch_name
-            );
+            println!("[?] Dry run - would add worktree '{}' with:", branch_name);
             println!("  [/] Path: {}", worktree_path.display());
             println!(
                 "  [>] Base branch: {}",
@@ -487,7 +484,7 @@ impl VibeTreeApp {
         self.save_config()?;
 
         println!(
-            "[✓] Created worktree '{}' at {}",
+            "[✓] Added worktree '{}' at {}",
             branch_name,
             worktree_path.display()
         );

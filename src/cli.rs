@@ -30,18 +30,18 @@ pub enum Commands {
         convert_repo: bool,
     },
 
-    #[command(about = "Create new git worktree with isolated port configuration")]
-    Create {
-        #[arg(help = "Name of the branch/worktree to create")]
+    #[command(about = "Add new git worktree with isolated port configuration")]
+    Add {
+        #[arg(help = "Name of the branch/worktree to add")]
         branch_name: String,
 
-        #[arg(long, help = "Create worktree from specific branch")]
+        #[arg(long, help = "Add worktree from specific branch")]
         from: Option<String>,
 
         #[arg(long, help = "Specify custom port assignments", value_delimiter = ',')]
         ports: Option<Vec<u16>>,
 
-        #[arg(long, help = "Show what would be created without making changes")]
+        #[arg(long, help = "Show what would be added without making changes")]
         dry_run: bool,
     },
 

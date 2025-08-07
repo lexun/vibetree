@@ -37,7 +37,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             app.init(variables, convert_repo)?;
         }
 
-        Commands::Create {
+        Commands::Add {
             branch_name,
             from,
             ports,
@@ -46,17 +46,17 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             // Try to load existing config first, fall back to empty config for worktrees without variables
             match VibeTreeApp::load_existing() {
                 Ok(mut app) => {
-                    app.create_worktree(branch_name, from, ports, dry_run)?;
+                    app.add_worktree(branch_name, from, ports, dry_run)?;
                 }
                 Err(_) => {
                     // No main config exists - only allow creation if no variables are needed (no ports specified)
                     if ports.is_some() {
                         anyhow::bail!(
-                            "Cannot create worktree with custom values when no configuration exists. Run 'vibetree init' first to configure variables."
+                            "Cannot add worktree with custom values when no configuration exists. Run 'vibetree init' first to configure variables."
                         );
                     }
                     let mut app = VibeTreeApp::new()?;
-                    app.create_worktree(branch_name, from, None, dry_run)?;
+                    app.add_worktree(branch_name, from, None, dry_run)?;
                     // Remove the config file created by VibeTreeApp::new() since we're in discovery mode
                     let config_path = std::env::current_dir()?.join("vibetree.toml");
                     if config_path.exists() {

@@ -180,7 +180,7 @@ fn test_complete_vibetree_workflow() -> Result<()> {
     }
 
     // Step 2: Create first worktree
-    app.create_worktree(
+    app.add_worktree(
         "feature-auth".to_string(),
         None,  // from main branch
         None,  // auto-allocate ports
@@ -204,7 +204,7 @@ fn test_complete_vibetree_workflow() -> Result<()> {
 
     // Step 3: Create second worktree with custom values
     let custom_values = vec![5555, 6666, 7777];
-    app.create_worktree(
+    app.add_worktree(
         "feature-payments".to_string(),
         Some("main".to_string()), // explicitly from main
         Some(custom_values.clone()),
@@ -221,7 +221,7 @@ fn test_complete_vibetree_workflow() -> Result<()> {
     assert!(env_content2.contains("API=7777"));
 
     // Step 4: Test dry run creation
-    app.create_worktree(
+    app.add_worktree(
         "feature-dryrun".to_string(),
         None,
         None,
@@ -285,14 +285,14 @@ fn test_port_conflict_detection() -> Result<()> {
     app.init(vec!["postgres".to_string(), "redis".to_string()], false)?;
 
     // Create first worktree
-    app.create_worktree("branch1".to_string(), None, None, false)?;
+    app.add_worktree("branch1".to_string(), None, None, false)?;
 
     // Try to create second worktree with conflicting ports
     let first_worktree = &app.get_worktrees()["branch1"];
     let conflicting_ports: Vec<u16> = first_worktree.values.values().cloned().collect();
 
     // This should fail due to port conflicts
-    let result = app.create_worktree("branch2".to_string(), None, Some(conflicting_ports), false);
+    let result = app.add_worktree("branch2".to_string(), None, Some(conflicting_ports), false);
 
     assert!(result.is_err());
     assert!(
@@ -316,7 +316,7 @@ fn test_worktree_validation() -> Result<()> {
 
     // Initialize and create worktree
     app.init(vec!["postgres".to_string()], false)?;
-    app.create_worktree("test-branch".to_string(), None, None, false)?;
+    app.add_worktree("test-branch".to_string(), None, None, false)?;
 
     let worktree_path = setup
         .repo_path
@@ -349,13 +349,13 @@ fn test_error_handling() -> Result<()> {
     app.init(vec!["postgres".to_string()], false)?;
 
     // Test creating worktree with empty name
-    let result = app.create_worktree("".to_string(), None, None, false);
+    let result = app.add_worktree("".to_string(), None, None, false);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("empty"));
 
     // Test creating duplicate worktree
-    app.create_worktree("test".to_string(), None, None, false)?;
-    let result = app.create_worktree("test".to_string(), None, None, false);
+    app.add_worktree("test".to_string(), None, None, false)?;
+    let result = app.add_worktree("test".to_string(), None, None, false);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("already exists"));
 
@@ -365,7 +365,7 @@ fn test_error_handling() -> Result<()> {
     assert!(result.unwrap_err().to_string().contains("does not exist"));
 
     // Test wrong number of custom ports
-    let result = app.create_worktree(
+    let result = app.add_worktree(
         "test2".to_string(),
         None,
         Some(vec![5432]), // Only 1 port for 1 service is correct
@@ -375,7 +375,7 @@ fn test_error_handling() -> Result<()> {
     assert!(result.is_ok());
 
     // Now test with wrong number of ports
-    let result = app.create_worktree(
+    let result = app.add_worktree(
         "test3".to_string(),
         None,
         Some(vec![5432, 6379]), // 2 ports for 1 service should fail
@@ -400,7 +400,7 @@ fn test_config_persistence() -> Result<()> {
     {
         let mut app1 = setup.create_app()?;
         app1.init(vec!["postgres".to_string(), "redis".to_string()], false)?;
-        app1.create_worktree("persistent-test".to_string(), None, None, false)?;
+        app1.add_worktree("persistent-test".to_string(), None, None, false)?;
 
         assert_eq!(app1.get_worktrees().len(), 2); // main + persistent-test
     } // app1 goes out of scope
@@ -435,7 +435,7 @@ fn test_serviceless_vibetree_workflow() -> Result<()> {
     assert_eq!(app.get_variables().len(), 0);
 
     // Step 2: Create worktree without any variables/ports
-    app.create_worktree(
+    app.add_worktree(
         "feature-no-variables".to_string(),
         None,  // from main branch
         None,  // no ports needed
@@ -457,7 +457,7 @@ fn test_serviceless_vibetree_workflow() -> Result<()> {
     assert!(worktrees_output.contains("feature-no-variables"));
 
     // Step 3: Create second worktree (should also work fine)
-    app.create_worktree(
+    app.add_worktree(
         "another-feature".to_string(),
         Some("main".to_string()),
         None, // no custom ports
@@ -505,7 +505,7 @@ fn test_sync_orphaned_worktree_discovery() -> Result<()> {
     app.init(vec!["postgres".to_string(), "redis".to_string()], false)?;
 
     // Create a worktree through vibetree normally
-    app.create_worktree("normal-branch".to_string(), None, None, false)?;
+    app.add_worktree("normal-branch".to_string(), None, None, false)?;
 
     // Create an "orphaned" worktree directly with git (bypassing vibetree)
     let branches_dir = setup.repo_path.join(".vibetree").join("branches");
@@ -569,7 +569,7 @@ fn test_sync_missing_worktree_cleanup() -> Result<()> {
 
     // Initialize and create worktree
     app.init(vec!["postgres".to_string()], false)?;
-    app.create_worktree("temp-branch".to_string(), None, None, false)?;
+    app.add_worktree("temp-branch".to_string(), None, None, false)?;
 
     // Verify worktree exists in both git and config
     assert!(setup.worktree_exists("temp-branch"));
@@ -603,7 +603,7 @@ fn test_sync_config_variable_changes() -> Result<()> {
 
     // Initialize with initial variables
     app.init(vec!["postgres".to_string()], false)?;
-    app.create_worktree("test-branch".to_string(), None, None, false)?;
+    app.add_worktree("test-branch".to_string(), None, None, false)?;
 
     // Verify initial state
     let initial_ports = app.get_worktrees()["test-branch"].values.clone();
@@ -657,7 +657,7 @@ fn test_sync_main_worktree_handling() -> Result<()> {
     assert!(!app.get_worktrees().contains_key("main"));
 
     // Create another worktree that might get the base ports
-    app.create_worktree("other-branch".to_string(), None, None, false)?;
+    app.add_worktree("other-branch".to_string(), None, None, false)?;
     let other_postgres_port = app.get_worktrees()["other-branch"].values["POSTGRES"];
 
     // Run sync - should re-add main branch and handle port conflicts
@@ -688,7 +688,7 @@ fn test_sync_dry_run() -> Result<()> {
 
     // Initialize and create a worktree
     app.init(vec!["postgres".to_string()], false)?;
-    app.create_worktree("test-branch".to_string(), None, None, false)?;
+    app.add_worktree("test-branch".to_string(), None, None, false)?;
 
     // Create orphaned worktree
     setup.run_git_cmd(&[
@@ -735,7 +735,7 @@ fn test_list_main_worktree_status() -> Result<()> {
     app.init(vec!["postgres".to_string()], false)?;
 
     // Create a branch worktree
-    app.create_worktree("test-branch".to_string(), None, None, false)?;
+    app.add_worktree("test-branch".to_string(), None, None, false)?;
 
     // Use the public method to check list functionality
     let worktree_data = app.collect_worktree_data()?;
