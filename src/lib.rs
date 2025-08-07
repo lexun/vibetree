@@ -147,9 +147,9 @@ impl VibeTreeApp {
         // Update .gitignore to include .vibetree directory
         self.update_gitignore(&self.vibetree_parent)?;
 
-        // Automatically sync to update all discovered worktrees with new configuration
-        info!("Running sync to update all worktree configurations");
-        self.sync(false)?;
+        // Automatically repair to update all discovered worktrees with new configuration
+        info!("Running repair to update all worktree configurations");
+        self.repair(false)?;
 
         println!(
             "[✓] Initialized vibetree configuration at {}",
@@ -616,8 +616,8 @@ impl VibeTreeApp {
         &mut self.config
     }
 
-    /// Synchronize configuration and discover orphaned worktrees
-    pub fn sync(&mut self, dry_run: bool) -> Result<()> {
+    /// Repair configuration and discover orphaned worktrees
+    pub fn repair(&mut self, dry_run: bool) -> Result<()> {
         let mut sync_manager =
             crate::sync::SyncManager::new(&mut self.config, &self.vibetree_parent);
         sync_manager.sync(dry_run)

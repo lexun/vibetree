@@ -111,17 +111,17 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             }
         }
 
-        Commands::Sync { dry_run } => {
+        Commands::Repair { dry_run } => {
             // Try to load existing configuration first
             match VibeTreeApp::load_existing() {
                 Ok(mut app) => {
-                    app.sync(dry_run)?;
+                    app.repair(dry_run)?;
                 }
                 Err(_) => {
-                    // No config exists - run sync in discovery mode
+                    // No config exists - run repair in discovery mode
                     let mut app = VibeTreeApp::new()?;
-                    app.sync(dry_run)?;
-                    // Remove the created config file since sync shouldn't create it
+                    app.repair(dry_run)?;
+                    // Remove the created config file since repair shouldn't create it
                     let config_path = std::env::current_dir()?.join("vibetree.toml");
                     if config_path.exists() {
                         std::fs::remove_file(&config_path)

@@ -67,9 +67,9 @@ pub enum Commands {
         format: Option<OutputFormat>,
     },
 
-    #[command(about = "Synchronize configuration and discover orphaned worktrees")]
-    Sync {
-        #[arg(long, help = "Show what would be synchronized without making changes")]
+    #[command(about = "Repair configuration and discover orphaned worktrees")]
+    Repair {
+        #[arg(long, help = "Show what would be repaired without making changes")]
         dry_run: bool,
     },
 }

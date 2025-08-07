@@ -471,7 +471,7 @@ fn test_serviceless_vibetree_workflow() -> Result<()> {
     // Step 4: List worktrees should work without services
     app.list_worktrees(None)?; // Should not panic
 
-    // Verify configuration state - now includes main branch due to sync
+    // Verify configuration state - now includes main branch due to repair
     assert_eq!(app.get_worktrees().len(), 3);
     assert!(app.get_worktrees().contains_key("feature-no-variables"));
     assert!(app.get_worktrees().contains_key("another-feature"));
@@ -497,7 +497,7 @@ fn test_serviceless_vibetree_workflow() -> Result<()> {
 }
 
 #[test]
-fn test_sync_orphaned_worktree_discovery() -> Result<()> {
+fn test_repair_orphaned_worktree_discovery() -> Result<()> {
     let setup = IntegrationTestSetup::new()?;
     let mut app = setup.create_app()?;
 
@@ -531,8 +531,8 @@ fn test_sync_orphaned_worktree_discovery() -> Result<()> {
     );
     assert!(!app.get_worktrees().contains_key("orphaned-branch"));
 
-    // Run sync - should discover orphaned worktree
-    app.sync(false)?;
+    // Run repair - should discover orphaned worktree
+    app.repair(false)?;
 
     // Verify orphaned worktree is now in config
     assert!(app.get_worktrees().contains_key("orphaned-branch"));
@@ -563,7 +563,7 @@ fn test_sync_orphaned_worktree_discovery() -> Result<()> {
 }
 
 #[test]
-fn test_sync_missing_worktree_cleanup() -> Result<()> {
+fn test_repair_missing_worktree_cleanup() -> Result<()> {
     let setup = IntegrationTestSetup::new()?;
     let mut app = setup.create_app()?;
 
@@ -587,8 +587,8 @@ fn test_sync_missing_worktree_cleanup() -> Result<()> {
     assert!(!setup.worktree_exists("temp-branch"));
     assert!(app.get_worktrees().contains_key("temp-branch"));
 
-    // Run sync - should clean up missing worktree
-    app.sync(false)?;
+    // Run repair - should clean up missing worktree
+    app.repair(false)?;
 
     // Verify worktree was removed from config
     assert!(!app.get_worktrees().contains_key("temp-branch"));
@@ -597,7 +597,7 @@ fn test_sync_missing_worktree_cleanup() -> Result<()> {
 }
 
 #[test]
-fn test_sync_config_variable_changes() -> Result<()> {
+fn test_repair_config_variable_changes() -> Result<()> {
     let setup = IntegrationTestSetup::new()?;
     let mut app = setup.create_app()?;
 
@@ -620,8 +620,8 @@ fn test_sync_config_variable_changes() -> Result<()> {
             default_value: 6379,
         });
 
-    // Run sync - should detect variable mismatch and update
-    app.sync(false)?;
+    // Run repair - should detect variable mismatch and update
+    app.repair(false)?;
 
     // Verify worktree now has both variables
     let updated_ports = &app.get_worktrees()["test-branch"].values;
@@ -638,7 +638,7 @@ fn test_sync_config_variable_changes() -> Result<()> {
 }
 
 #[test]
-fn test_sync_main_worktree_handling() -> Result<()> {
+fn test_repair_main_worktree_handling() -> Result<()> {
     let setup = IntegrationTestSetup::new()?;
     let mut app = setup.create_app()?;
 
@@ -660,8 +660,8 @@ fn test_sync_main_worktree_handling() -> Result<()> {
     app.add_worktree("other-branch".to_string(), None, None, false)?;
     let other_postgres_port = app.get_worktrees()["other-branch"].values["POSTGRES"];
 
-    // Run sync - should re-add main branch and handle port conflicts
-    app.sync(false)?;
+    // Run repair - should re-add main branch and handle port conflicts
+    app.repair(false)?;
 
     // Verify main branch is back in config with base ports
     assert!(app.get_worktrees().contains_key("main"));
@@ -682,7 +682,7 @@ fn test_sync_main_worktree_handling() -> Result<()> {
 }
 
 #[test]
-fn test_sync_dry_run() -> Result<()> {
+fn test_repair_dry_run() -> Result<()> {
     let setup = IntegrationTestSetup::new()?;
     let mut app = setup.create_app()?;
 
@@ -700,7 +700,7 @@ fn test_sync_dry_run() -> Result<()> {
         "main",
     ])?;
 
-    // Remove main from config to test multiple sync operations
+    // Remove main from config to test multiple repair operations
     app.get_config_mut()
         .branches_config
         .worktrees
@@ -708,16 +708,16 @@ fn test_sync_dry_run() -> Result<()> {
 
     let initial_worktree_count = app.get_worktrees().len();
 
-    // Run dry run sync
-    app.sync(true)?;
+    // Run dry run repair
+    app.repair(true)?;
 
     // Verify no changes were made
     assert_eq!(app.get_worktrees().len(), initial_worktree_count);
     assert!(!app.get_worktrees().contains_key("orphaned"));
     assert!(!app.get_worktrees().contains_key("main"));
 
-    // Run actual sync
-    app.sync(false)?;
+    // Run actual repair
+    app.repair(false)?;
 
     // Verify changes were made
     assert!(app.get_worktrees().contains_key("orphaned"));
