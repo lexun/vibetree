@@ -59,6 +59,25 @@ impl VibeTreeApp {
             vibetree_parent,
         })
     }
+    
+    /// Create a VibeTreeApp instance that only loads existing configuration (doesn't create new files)
+    pub fn load_existing() -> Result<Self> {
+        let vibetree_parent = VibeTreeConfig::get_vibetree_parent()
+            .context("Failed to determine VIBETREE_PARENT directory")?;
+
+        Self::load_existing_with_parent(vibetree_parent)
+    }
+
+    /// Create a VibeTreeApp instance with specific parent that only loads existing configuration
+    pub fn load_existing_with_parent(vibetree_parent: PathBuf) -> Result<Self> {
+        let config = VibeTreeConfig::load_existing_with_parent(Some(vibetree_parent.clone()))
+            .context("Failed to load existing vibetree configuration")?;
+
+        Ok(Self {
+            config,
+            vibetree_parent,
+        })
+    }
 
     /// Initialize vibetree configuration
     pub fn init(&mut self, variables: Vec<String>, convert_repo: bool) -> Result<()> {
@@ -124,6 +143,10 @@ impl VibeTreeApp {
         }
 
         self.save_config()?;
+
+        // Automatically sync to update all discovered worktrees with new configuration
+        info!("Running sync to update all worktree configurations");
+        self.sync(false)?;
 
         println!(
             "[✓] Initialized vibetree configuration at {}",

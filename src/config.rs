@@ -78,6 +78,47 @@ impl VibeTreeConfig {
     pub fn load_or_create() -> Result<Self> {
         Self::load_or_create_with_parent(None)
     }
+    
+    /// Load existing configuration without creating new files
+    pub fn load_existing() -> Result<Self> {
+        Self::load_existing_with_parent(None)
+    }
+    
+    /// Load existing configuration with parent override without creating new files
+    pub fn load_existing_with_parent(parent_override: Option<PathBuf>) -> Result<Self> {
+        let project_config_path = if let Some(ref parent) = parent_override {
+            parent.join("vibetree.toml")
+        } else {
+            Self::get_project_config_path()?
+        };
+
+        let branches_config_path = if let Some(ref parent) = parent_override {
+            parent.join(".vibetree").join("branches.toml")
+        } else {
+            Self::get_branches_config_path()?
+        };
+
+        if !project_config_path.exists() {
+            anyhow::bail!(
+                "Vibetree configuration not found at {}. Run 'vibetree init' first.",
+                project_config_path.display()
+            );
+        }
+
+        let project_config = Self::load_project_config(&project_config_path)?;
+
+        let branches_config = if branches_config_path.exists() {
+            Self::load_branches_config(&branches_config_path)?
+        } else {
+            VibeTreeBranchesConfig::default()
+        };
+
+        Ok(Self {
+            project_config,
+            branches_config,
+            parent_override: parent_override.clone(),
+        })
+    }
 
     pub fn load_or_create_with_parent(parent_override: Option<PathBuf>) -> Result<Self> {
         let project_config_path = if let Some(ref parent) = parent_override {
