@@ -43,9 +43,25 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             ports,
             dry_run,
         } => {
-            // Other commands require existing configuration
-            let mut app = VibeTreeApp::load_existing()?;
-            app.create_worktree(branch_name, from, ports, dry_run)?;
+            // Try to load existing config first, fall back to empty config for worktrees without variables
+            match VibeTreeApp::load_existing() {
+                Ok(mut app) => {
+                    app.create_worktree(branch_name, from, ports, dry_run)?;
+                }
+                Err(_) => {
+                    // No main config exists - only allow creation if no variables are needed (no ports specified)
+                    if ports.is_some() {
+                        anyhow::bail!("Cannot create worktree with custom values when no configuration exists. Run 'vibetree init' first to configure variables.");
+                    }
+                    let mut app = VibeTreeApp::new()?;
+                    app.create_worktree(branch_name, from, None, dry_run)?;
+                    // Remove the config file created by VibeTreeApp::new() since we're in discovery mode
+                    let config_path = std::env::current_dir()?.join("vibetree.toml");
+                    if config_path.exists() {
+                        std::fs::remove_file(&config_path).context("Failed to remove created config file")?;
+                    }
+                }
+            }
         }
 
         Commands::Remove {
@@ -53,13 +69,41 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             force,
             keep_branch,
         } => {
-            let mut app = VibeTreeApp::load_existing()?;
-            app.remove_worktree(branch_name, force, keep_branch)?;
+            // Try to load existing config first, fall back to discovery mode
+            match VibeTreeApp::load_existing() {
+                Ok(mut app) => {
+                    app.remove_worktree(branch_name, force, keep_branch)?;
+                }
+                Err(_) => {
+                    // No main config exists - try to load branches config directly for removal
+                    let mut app = VibeTreeApp::new()?;
+                    app.remove_worktree(branch_name, force, keep_branch)?;
+                    // Remove the config file created by VibeTreeApp::new() since we're in discovery mode
+                    let config_path = std::env::current_dir()?.join("vibetree.toml");
+                    if config_path.exists() {
+                        std::fs::remove_file(&config_path).context("Failed to remove created config file")?;
+                    }
+                }
+            }
         }
 
         Commands::List { format } => {
-            let app = VibeTreeApp::load_existing()?;
-            app.list_worktrees(format)?;
+            // Try to load existing configuration first, fall back to empty config
+            match VibeTreeApp::load_existing() {
+                Ok(app) => {
+                    app.list_worktrees(format)?;
+                }
+                Err(_) => {
+                    // No config exists - create temporary app to show empty list
+                    let app = VibeTreeApp::new()?;
+                    app.list_worktrees(format)?;
+                    // Remove any config file that might have been created
+                    let config_path = std::env::current_dir()?.join("vibetree.toml");
+                    if config_path.exists() {
+                        std::fs::remove_file(&config_path).context("Failed to remove created config file")?;
+                    }
+                }
+            }
         }
 
         Commands::Sync { dry_run } => {
@@ -76,7 +120,6 @@ Err(_) => {
                     let config_path = std::env::current_dir()?.join("vibetree.toml");
                     if config_path.exists() {
                         std::fs::remove_file(&config_path).context("Failed to remove created config file")?;
-                        println!("[!] Discovered worktrees but no main configuration exists. Run 'vibetree init' to create one.");
                     }
                 }
             }

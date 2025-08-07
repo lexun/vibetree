@@ -17,8 +17,8 @@ impl ConfigValidator {
         // Validate worktree configurations
         Self::validate_worktree_configs(config, &mut result);
 
-        // Validate port allocations
-        Self::validate_port_allocations(config, &mut result);
+        // Validate value allocations
+        Self::validate_value_allocations(config, &mut result);
 
         Ok(result)
     }
@@ -35,25 +35,25 @@ impl ConfigValidator {
                 result.add_error(format!("Duplicate variable name: '{}'", variable.name));
             }
 
-            // Check for duplicate base ports
-            if !seen_ports.insert(variable.port) {
+            // Check for duplicate default values
+            if !seen_ports.insert(variable.default_value) {
                 result.add_error(format!(
-                    "Duplicate base port: {} (used by '{}')",
-                    variable.port, variable.name
+                    "Duplicate default value: {} (used by '{}')",
+                    variable.default_value, variable.name
                 ));
             }
 
-            // Validate port is in valid range
-            if variable.port == 0 {
-                result.add_error(format!("Invalid port 0 for variable '{}'", variable.name));
+            // Validate value is in valid range
+            if variable.default_value == 0 {
+                result.add_error(format!("Invalid value 0 for variable '{}'", variable.name));
             }
 
-            // Check for system reserved ports
+            // Check for system reserved ports (still relevant for port variables)
             let reserved_ports = PortManager::get_system_reserved_ports();
-            if reserved_ports.contains(&variable.port) {
+            if reserved_ports.contains(&variable.default_value) {
                 result.add_warning(format!(
                     "Variable '{}' uses system reserved port {}",
-                    variable.name, variable.port
+                    variable.name, variable.default_value
                 ));
             }
 
@@ -77,7 +77,7 @@ impl ConfigValidator {
             .collect();
 
         for (worktree_name, worktree_config) in &config.branches_config.worktrees {
-            let worktree_var_names: HashSet<_> = worktree_config.ports.keys().collect();
+            let worktree_var_names: HashSet<_> = worktree_config.values.keys().collect();
 
             // Check if worktree has variables that don't exist in project config
             for var_name in &worktree_var_names {
@@ -109,26 +109,26 @@ impl ConfigValidator {
         }
     }
 
-    /// Validate port allocations across all worktrees
-    fn validate_port_allocations(config: &VibeTreeConfig, result: &mut ValidationResult) {
+    /// Validate value allocations across all worktrees
+    fn validate_value_allocations(config: &VibeTreeConfig, result: &mut ValidationResult) {
         let mut port_usage: HashMap<u16, Vec<String>> = HashMap::new();
 
-        // Collect all port usage
+        // Collect all value usage
         for (worktree_name, worktree_config) in &config.branches_config.worktrees {
-            for (var_name, &port) in &worktree_config.ports {
+            for (var_name, &value) in &worktree_config.values {
                 port_usage
-                    .entry(port)
+                    .entry(value)
                     .or_insert_with(Vec::new)
                     .push(format!("{}:{}", worktree_name, var_name));
             }
         }
 
-        // Check for port conflicts
-        for (port, usage) in port_usage {
+        // Check for value conflicts
+        for (value, usage) in port_usage {
             if usage.len() > 1 {
                 result.add_error(format!(
-                    "Port {} is used by multiple services: {}",
-                    port,
+                    "Value {} is used by multiple services: {}",
+                    value,
                     usage.join(", ")
                 ));
             }
@@ -155,9 +155,9 @@ impl ConfigValidator {
         // Check for basic consistency
         let project_var_count = config.project_config.variables.len();
 
-        // All worktrees should have the same number of port mappings
+        // All worktrees should have the same number of value mappings
         for worktree_config in config.branches_config.worktrees.values() {
-            if worktree_config.ports.len() != project_var_count {
+            if worktree_config.values.len() != project_var_count {
                 return false;
             }
         }
@@ -235,11 +235,11 @@ mod tests {
         let variables = vec![
             VariableConfig {
                 name: "POSTGRES_PORT".to_string(),
-                port: 5432,
+                default_value: 5432,
             },
             VariableConfig {
                 name: "POSTGRES_PORT".to_string(), // Duplicate name
-                port: 5433,
+                default_value: 5433,
             },
         ];
 
@@ -264,19 +264,19 @@ mod tests {
             version: "1".to_string(),
             variables: vec![VariableConfig {
                 name: "POSTGRES_PORT".to_string(),
-                port: 5432,
+                default_value: 5432,
             }],
             main_branch: "main".to_string(),
             branches_dir: "branches".to_string(),
             env_file_path: ".vibetree/env".to_string(),
         };
 
-        // Create two worktrees with conflicting port assignments
-        let mut worktree1_ports = HashMap::new();
-        worktree1_ports.insert("POSTGRES_PORT".to_string(), 5432);
+        // Create two worktrees with conflicting value assignments
+        let mut worktree1_values = HashMap::new();
+        worktree1_values.insert("POSTGRES_PORT".to_string(), 5432);
 
-        let mut worktree2_ports = HashMap::new();
-        worktree2_ports.insert("POSTGRES_PORT".to_string(), 5432); // Same port!
+        let mut worktree2_values = HashMap::new();
+        worktree2_values.insert("POSTGRES_PORT".to_string(), 5432); // Same value!
 
         config.branches_config = VibeTreeBranchesConfig {
             version: "1".to_string(),
@@ -284,13 +284,13 @@ mod tests {
                 (
                     "branch1".to_string(),
                     WorktreeConfig {
-                        ports: worktree1_ports,
+                        values: worktree1_values,
                     },
                 ),
                 (
                     "branch2".to_string(),
                     WorktreeConfig {
-                        ports: worktree2_ports,
+                        values: worktree2_values,
                     },
                 ),
             ]),
@@ -302,7 +302,7 @@ mod tests {
             result
                 .errors
                 .iter()
-                .any(|e| e.contains("Port 5432 is used by multiple services"))
+                .any(|e| e.contains("Value 5432 is used by multiple services"))
         );
     }
 }

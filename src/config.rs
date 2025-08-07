@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 /// Variable configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableConfig {
-    pub name: String, // Environment variable name
-    pub port: u16,    // Starting port
+    pub name: String,          // Environment variable name
+    pub default_value: u16,    // Starting value
 }
 
 /// Shared project configuration - stored in vibetree.toml (checked into git)
@@ -50,7 +50,7 @@ fn default_env_file_path() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorktreeConfig {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub ports: HashMap<String, u16>, // env_var_name -> port
+    pub values: HashMap<String, u16>, // env_var_name -> value
 }
 
 impl Default for VibeTreeProjectConfig {
@@ -250,18 +250,18 @@ impl VibeTreeConfig {
     pub fn add_or_update_worktree(
         &mut self,
         name: String,
-        custom_ports: Option<HashMap<String, u16>>,
+        custom_values: Option<HashMap<String, u16>>,
     ) -> Result<HashMap<String, u16>> {
-        let ports = if let Some(custom) = custom_ports {
+        let values = if let Some(custom) = custom_values {
             // Check for conflicts with existing worktrees (excluding the one we're updating)
-            for (variable, &port) in custom.iter() {
+            for (variable, &value) in custom.iter() {
                 for (existing_name, existing_worktree) in &self.branches_config.worktrees {
                     if existing_name != &name
-                        && existing_worktree.ports.values().any(|p| *p == port)
+                        && existing_worktree.values.values().any(|p| *p == value)
                     {
                         anyhow::bail!(
-                            "Port {} (for variable '{}') is already allocated to worktree '{}'",
-                            port,
+                            "Value {} (for variable '{}') is already allocated to worktree '{}'",
+                            value,
                             variable,
                             existing_name
                         );
@@ -271,39 +271,39 @@ impl VibeTreeConfig {
 
             custom
         } else if self.project_config.variables.is_empty() {
-            // No variables defined, no ports needed
+            // No variables defined, no values needed
             HashMap::new()
         } else {
             self.project_config
-                .allocate_ports(&name, &self.branches_config.worktrees)?
+                .allocate_values(&name, &self.branches_config.worktrees)?
         };
 
         let worktree = WorktreeConfig {
-            ports: ports.clone(),
+            values: values.clone(),
         };
 
         self.branches_config.worktrees.insert(name, worktree);
         self.save_branches_config()?; // Save changes to branches config
-        Ok(ports)
+        Ok(values)
     }
 
     pub fn add_worktree(
         &mut self,
         name: String,
-        custom_ports: Option<HashMap<String, u16>>,
+        custom_values: Option<HashMap<String, u16>>,
     ) -> Result<HashMap<String, u16>> {
         if self.branches_config.worktrees.contains_key(&name) {
             anyhow::bail!("Worktree '{}' already exists", name);
         }
 
-        let ports = if let Some(custom) = custom_ports {
+        let values = if let Some(custom) = custom_values {
             // Check for conflicts with existing worktrees
-            for (variable, &port) in custom.iter() {
+            for (variable, &value) in custom.iter() {
                 for (existing_name, existing_worktree) in &self.branches_config.worktrees {
-                    if existing_worktree.ports.values().any(|p| *p == port) {
+                    if existing_worktree.values.values().any(|p| *p == value) {
                         anyhow::bail!(
-                            "Port {} (for variable '{}') is already allocated to worktree '{}'",
-                            port,
+                            "Value {} (for variable '{}') is already allocated to worktree '{}'",
+                            value,
                             variable,
                             existing_name
                         );
@@ -313,20 +313,20 @@ impl VibeTreeConfig {
 
             custom
         } else if self.project_config.variables.is_empty() {
-            // No variables defined, no ports needed
+            // No variables defined, no values needed
             HashMap::new()
         } else {
             self.project_config
-                .allocate_ports(&name, &self.branches_config.worktrees)?
+                .allocate_values(&name, &self.branches_config.worktrees)?
         };
 
         let worktree = WorktreeConfig {
-            ports: ports.clone(),
+            values: values.clone(),
         };
 
         self.branches_config.worktrees.insert(name, worktree);
         self.save_branches_config()?; // Save changes to branches config
-        Ok(ports)
+        Ok(values)
     }
 
     pub fn remove_worktree(&mut self, name: &str) -> Result<()> {
@@ -362,33 +362,33 @@ impl VibeTreeConfig {
 }
 
 impl VibeTreeProjectConfig {
-    pub fn allocate_ports(
+    pub fn allocate_values(
         &self,
         _worktree_name: &str,
         existing_worktrees: &HashMap<String, WorktreeConfig>,
     ) -> Result<HashMap<String, u16>> {
-        let mut allocated_ports = HashMap::new();
-        let used_ports = Self::get_all_used_ports(existing_worktrees);
+        let mut allocated_values = HashMap::new();
+        let used_values = Self::get_all_used_values(existing_worktrees);
 
         for variable in &self.variables {
-            let mut port = variable.port;
-            while used_ports.contains(&port) {
-                port += 1;
+            let mut value = variable.default_value;
+            while used_values.contains(&value) {
+                value += 1;
             }
 
-            allocated_ports.insert(variable.name.clone(), port);
+            allocated_values.insert(variable.name.clone(), value);
         }
 
-        Ok(allocated_ports)
+        Ok(allocated_values)
     }
 
-    fn get_all_used_ports(
+    fn get_all_used_values(
         existing_worktrees: &HashMap<String, WorktreeConfig>,
     ) -> std::collections::HashSet<u16> {
         let mut used = std::collections::HashSet::new();
         for worktree in existing_worktrees.values() {
-            for port in worktree.ports.values() {
-                used.insert(*port);
+            for value in worktree.values.values() {
+                used.insert(*value);
             }
         }
         used
@@ -442,22 +442,22 @@ mod tests {
         // Add some variables first
         config.project_config.variables.push(VariableConfig {
             name: "TEST_SERVICE_PORT".to_string(),
-            port: 8000,
+            default_value: 8000,
         });
 
-        let ports1 = config.add_worktree("branch1".to_string(), None)?;
+        let values1 = config.add_worktree("branch1".to_string(), None)?;
 
-        let ports2 = config.add_worktree("branch2".to_string(), None)?;
+        let values2 = config.add_worktree("branch2".to_string(), None)?;
 
-        // Verify ports are different
+        // Verify values are different
         for variable in &config.project_config.variables {
-            assert_ne!(ports1[&variable.name], ports2[&variable.name]);
+            assert_ne!(values1[&variable.name], values2[&variable.name]);
         }
 
-        // Verify ports start from the configured starting port
+        // Verify values start from the configured starting value
         for variable in &config.project_config.variables {
-            assert!(ports1[&variable.name] >= variable.port);
-            assert!(ports2[&variable.name] >= variable.port);
+            assert!(values1[&variable.name] >= variable.default_value);
+            assert!(values2[&variable.name] >= variable.default_value);
         }
 
         Ok(())
@@ -476,7 +476,7 @@ mod tests {
         // Add a variable for testing
         config.project_config.variables.push(VariableConfig {
             name: "TEST_SERVICE_PORT".to_string(),
-            port: 8000,
+            default_value: 8000,
         });
 
         config.add_worktree("test-branch".to_string(), None)?;
@@ -516,7 +516,7 @@ mod tests {
         // Add a variable for testing
         config.project_config.variables.push(VariableConfig {
             name: "TEST_SERVICE_PORT".to_string(),
-            port: 8000,
+            default_value: 8000,
         });
 
         config

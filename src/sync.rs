@@ -118,7 +118,7 @@ impl<'a> SyncManager<'a> {
                 .map(|v| &v.name)
                 .collect();
             let worktree_var_names: std::collections::HashSet<_> =
-                worktree_config.ports.keys().collect();
+                worktree_config.values.keys().collect();
 
             if current_var_names != worktree_var_names {
                 plan.config_mismatches.push(branch_name.clone());
@@ -257,13 +257,13 @@ impl<'a> SyncManager<'a> {
             .project_config
             .variables
             .iter()
-            .map(|v| v.port)
+            .map(|v| v.default_value)
             .collect();
 
         for (existing_name, existing_config) in &self.config.branches_config.worktrees {
             if existing_name != branch_name {
                 let existing_ports: std::collections::HashSet<u16> =
-                    existing_config.ports.values().cloned().collect();
+                    existing_config.values.values().cloned().collect();
                 if !base_ports.is_disjoint(&existing_ports) {
                     conflicting_worktree = Some(existing_name.clone());
                     break;
@@ -294,7 +294,7 @@ impl<'a> SyncManager<'a> {
         // Now assign base ports to main branch
         let mut main_ports = HashMap::new();
         for variable in &self.config.project_config.variables {
-            main_ports.insert(variable.name.clone(), variable.port);
+            main_ports.insert(variable.name.clone(), variable.default_value);
         }
 
         match self
@@ -326,7 +326,7 @@ impl<'a> SyncManager<'a> {
                 if let Err(e) = EnvFileGenerator::generate_env_file(
                     &env_file_path,
                     branch_name,
-                    &worktree_config.ports,
+                    &worktree_config.values,
                 ) {
                     env_errors.push(format!(
                         "Failed to update env file for '{}': {}",
@@ -367,7 +367,7 @@ impl<'a> SyncManager<'a> {
                 if let Err(e) = EnvFileGenerator::generate_env_file(
                     &env_file_path,
                     branch_name,
-                    &worktree_config.ports,
+                    &worktree_config.values,
                 ) {
                     sync_errors.push(format!(
                         "Failed to update env file for '{}': {}",

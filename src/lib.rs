@@ -100,22 +100,22 @@ impl VibeTreeApp {
                         format!("Invalid port '{}' for variable '{}'", port_str, variable)
                     })?;
 
-                    // Convert variable name to env var name (uppercase + _PORT)
-                    let env_var_name = format!("{}_PORT", variable.to_uppercase());
+                    // Use variable name as-is (already should be a proper env var name)
+                    let env_var_name = variable.to_uppercase();
 
                     self.config.project_config.variables.push(VariableConfig {
                         name: env_var_name,
-                        port,
+                        default_value: port,
                     });
                 } else {
                     // Variable without port - use default incremental port
                     let default_port =
                         8000 + (self.config.project_config.variables.len() as u16 * 100);
-                    let env_var_name = format!("{}_PORT", variable_spec.to_uppercase());
+                    let env_var_name = variable_spec.to_uppercase();
 
                     self.config.project_config.variables.push(VariableConfig {
                         name: env_var_name,
-                        port: default_port,
+                        default_value: default_port,
                     });
                 }
             }
@@ -126,19 +126,19 @@ impl VibeTreeApp {
             let main_branch = GitManager::get_current_branch(&self.vibetree_parent)
                 .unwrap_or_else(|_| self.config.project_config.main_branch.clone());
 
-            // Create port mapping for main branch using base variable ports
-            let mut main_branch_ports = HashMap::new();
+            // Create value mapping for main branch using base variable values
+            let mut main_branch_values = HashMap::new();
             for variable in &self.config.project_config.variables {
-                main_branch_ports.insert(variable.name.clone(), variable.port);
+                main_branch_values.insert(variable.name.clone(), variable.default_value);
             }
 
-            // Add or update main branch with the base variable ports to branches.toml
+            // Add or update main branch with the base variable values to branches.toml
             self.config
-                .add_or_update_worktree(main_branch.clone(), Some(main_branch_ports.clone()))?;
+                .add_or_update_worktree(main_branch.clone(), Some(main_branch_values.clone()))?;
 
             // Generate env file for the main worktree
             let env_file_path = self.config.get_env_file_path(&self.vibetree_parent);
-            EnvFileGenerator::generate_env_file(&env_file_path, &main_branch, &main_branch_ports)
+            EnvFileGenerator::generate_env_file(&env_file_path, &main_branch, &main_branch_values)
                 .context("Failed to generate environment file for main worktree")?;
         }
 
@@ -158,7 +158,7 @@ impl VibeTreeApp {
                 .project_config
                 .variables
                 .iter()
-                .map(|v| format!("{}:{}", v.name, v.port))
+                .map(|v| format!("{}:{}", v.name, v.default_value))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
@@ -223,22 +223,22 @@ impl VibeTreeApp {
                         format!("Invalid port '{}' for variable '{}'", port_str, variable)
                     })?;
 
-                    // Convert variable name to env var name (uppercase + _PORT)
-                    let env_var_name = format!("{}_PORT", variable.to_uppercase());
+                    // Use variable name as-is (already should be a proper env var name)
+                    let env_var_name = variable.to_uppercase();
 
                     self.config.project_config.variables.push(VariableConfig {
                         name: env_var_name,
-                        port,
+                        default_value: port,
                     });
                 } else {
                     // Variable without port - use default incremental port
                     let default_port =
                         8000 + (self.config.project_config.variables.len() as u16 * 100);
-                    let env_var_name = format!("{}_PORT", variable_spec.to_uppercase());
+                    let env_var_name = variable_spec.to_uppercase();
 
                     self.config.project_config.variables.push(VariableConfig {
                         name: env_var_name,
-                        port: default_port,
+                        default_value: default_port,
                     });
                 }
             }
@@ -246,22 +246,22 @@ impl VibeTreeApp {
 
         // Add or update the main branch to branches configuration if variables are configured
         if !self.config.project_config.variables.is_empty() {
-            // Create port mapping for main branch using base variable ports
-            let mut main_branch_ports = HashMap::new();
+            // Create value mapping for main branch using base variable values
+            let mut main_branch_values = HashMap::new();
             for variable in &self.config.project_config.variables {
-                main_branch_ports.insert(variable.name.clone(), variable.port);
+                main_branch_values.insert(variable.name.clone(), variable.default_value);
             }
 
-            // Add or update main branch with the base variable ports to branches.toml
+            // Add or update main branch with the base variable values to branches.toml
             self.config
-                .add_or_update_worktree(current_branch.clone(), Some(main_branch_ports.clone()))?;
+                .add_or_update_worktree(current_branch.clone(), Some(main_branch_values.clone()))?;
 
             // Generate env file for the main worktree
             let env_file_path = self.config.get_env_file_path(&self.vibetree_parent);
             EnvFileGenerator::generate_env_file(
                 &env_file_path,
                 &current_branch,
-                &main_branch_ports,
+                &main_branch_values,
             )
             .context("Failed to generate environment file for main worktree")?;
         }
@@ -276,7 +276,7 @@ impl VibeTreeApp {
                 .project_config
                 .variables
                 .iter()
-                .map(|v| format!("{}:{}", v.name, v.port))
+                .map(|v| format!("{}:{}", v.name, v.default_value))
                 .collect::<Vec<_>>()
                 .join(", ")
         );
@@ -337,7 +337,7 @@ impl VibeTreeApp {
         &mut self,
         branch_name: String,
         from_branch: Option<String>,
-        custom_ports: Option<Vec<u16>>,
+        custom_values: Option<Vec<u16>>,
         dry_run: bool,
     ) -> Result<()> {
         info!("Creating worktree: {}", branch_name);
@@ -379,12 +379,12 @@ impl VibeTreeApp {
             anyhow::bail!("Directory '{}' already exists", worktree_path.display());
         }
 
-        // Convert custom ports Vec to HashMap if provided
-        let custom_port_map = if let Some(custom) = custom_ports {
-            // Validate port count matches variable count
+        // Convert custom values Vec to HashMap if provided
+        let custom_value_map = if let Some(custom) = custom_values {
+            // Validate value count matches variable count
             if custom.len() != self.config.project_config.variables.len() {
                 anyhow::bail!(
-                    "Expected {} ports for variables: {}",
+                    "Expected {} values for variables: {}",
                     self.config.project_config.variables.len(),
                     self.config
                         .project_config
@@ -396,39 +396,39 @@ impl VibeTreeApp {
                 );
             }
 
-            let mut port_map = HashMap::new();
-            for (variable, port) in self
+            let mut value_map = HashMap::new();
+            for (variable, value) in self
                 .config
                 .project_config
                 .variables
                 .iter()
                 .zip(custom.iter())
             {
-                port_map.insert(variable.name.clone(), *port);
+                value_map.insert(variable.name.clone(), *value);
             }
-            Some(port_map)
+            Some(value_map)
         } else {
             None
         };
 
         // First, add the worktree to configuration (this handles port allocation and validation)
-        let ports = self
+        let values = self
             .config
-            .add_worktree(branch_name.clone(), custom_port_map)?;
+            .add_worktree(branch_name.clone(), custom_value_map)?;
 
-        // Validate that allocated ports are actually available on the system
-        let port_list: Vec<u16> = ports.values().cloned().collect();
-        let availability = PortManager::check_ports_availability(&port_list);
+        // Validate that allocated values are actually available on the system (for port variables)
+        let value_list: Vec<u16> = values.values().cloned().collect();
+        let availability = PortManager::check_ports_availability(&value_list);
         let unavailable: Vec<u16> = availability
             .iter()
-            .filter_map(|(&port, &available)| if !available { Some(port) } else { None })
+            .filter_map(|(&value, &available)| if !available { Some(value) } else { None })
             .collect();
 
         if !unavailable.is_empty() {
-            // Remove the worktree from config since port validation failed
+            // Remove the worktree from config since value validation failed
             self.config.remove_worktree(&branch_name)?;
             anyhow::bail!(
-                "The following ports are not available: {}",
+                "The following values are not available as ports: {}",
                 unavailable
                     .iter()
                     .map(|p| p.to_string())
@@ -450,9 +450,9 @@ impl VibeTreeApp {
                 "  [>] Base branch: {}",
                 from_branch.as_deref().unwrap_or("HEAD")
             );
-            println!("  [#] Ports:");
-            for (variable, port) in &ports {
-                println!("    {} → {}", variable, port);
+            println!("  [#] Values:");
+            for (variable, value) in &values {
+                println!("    {} → {}", variable, value);
             }
             return Ok(());
         }
@@ -470,7 +470,7 @@ impl VibeTreeApp {
 
         // Generate environment file
         let env_file_path = self.config.get_env_file_path(&worktree_path);
-        EnvFileGenerator::generate_env_file(&env_file_path, &branch_name, &ports)
+        EnvFileGenerator::generate_env_file(&env_file_path, &branch_name, &values)
             .context("Failed to generate environment file")?;
 
         // Check and suggest .gitignore update
@@ -489,9 +489,9 @@ impl VibeTreeApp {
             branch_name,
             worktree_path.display()
         );
-        println!("[#] Allocated ports:");
-        for (variable, port) in &ports {
-            println!("  {} → {}", variable, port);
+        println!("[#] Allocated values:");
+        for (variable, value) in &values {
+            println!("  {} → {}", variable, value);
         }
         println!("[+] Environment file created at .vibetree/env");
         println!(
@@ -650,6 +650,26 @@ mod tests {
 
     fn setup_test_app() -> Result<(TempDir, VibeTreeApp)> {
         let temp_dir = TempDir::new()?;
+        
+        // Initialize a git repository in the temp directory for testing
+        let repo = git2::Repository::init(temp_dir.path())?;
+        
+        // Create initial commit to have a valid HEAD
+        let sig = git2::Signature::now("Test", "test@example.com")?;
+        let tree_id = {
+            let mut index = repo.index()?;
+            index.write_tree()?
+        };
+        let tree = repo.find_tree(tree_id)?;
+        repo.commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            "Initial commit",
+            &tree,
+            &[],
+        )?;
+        
         let app = VibeTreeApp::with_parent(temp_dir.path().to_path_buf())?;
         Ok((temp_dir, app))
     }
@@ -680,14 +700,14 @@ mod tests {
                 .project_config
                 .variables
                 .iter()
-                .any(|v| v.name == "POSTGRES_PORT")
+                .any(|v| v.name == "POSTGRES")
         );
         assert!(
             app.config
                 .project_config
                 .variables
                 .iter()
-                .any(|v| v.name == "REDIS_PORT")
+                .any(|v| v.name == "REDIS")
         );
 
         Ok(())

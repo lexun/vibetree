@@ -12,9 +12,9 @@ use crate::git::GitManager;
 pub struct WorktreeDisplayData {
     pub name: String,
     pub status: String,
-    pub ports: HashMap<String, u16>,
+    pub values: HashMap<String, u16>,
     #[serde(skip)]
-    pub ports_display: String,
+    pub values_display: String,
 }
 
 pub struct DisplayManager<'a> {
@@ -50,15 +50,15 @@ impl<'a> DisplayManager<'a> {
         }
 
         println!(
-            "{:<20} {:<15} {:<15} {:<50}",
-            "Name", "Branch", "Status", "Ports"
+            "{:<20} {:<15} {:<50}",
+            "Name", "Status", "Values"
         );
-        println!("{}", "-".repeat(100));
+        println!("{}", "-".repeat(85));
 
         for data in worktree_data {
             println!(
-                "{:<20} {:<15} {:<15} {:<50}",
-                data.name, data.name, data.status, data.ports_display
+                "{:<20} {:<15} {:<50}",
+                data.name, data.status, data.values_display
             );
         }
 
@@ -119,8 +119,8 @@ impl<'a> DisplayManager<'a> {
                 "OK"
             };
 
-            let ports_display = worktree
-                .ports
+            let values_display = worktree
+                .values
                 .iter()
                 .map(|(service, port)| format!("{}:{}", service, port))
                 .collect::<Vec<_>>()
@@ -129,8 +129,8 @@ impl<'a> DisplayManager<'a> {
             data.push(WorktreeDisplayData {
                 name: name.clone(),
                 status: status.to_string(),
-                ports: worktree.ports.clone(),
-                ports_display,
+                values: worktree.values.clone(),
+                values_display,
             });
         }
 
