@@ -48,8 +48,8 @@
             src = ./.;
             cargoLock.lockFile = ./Cargo.lock;
 
-            # Skip integration tests in Nix build (they require git and file system access)
-            cargoTestFlags = [ "--lib" ];
+            # Disable all tests in the output derivation
+            doCheck = false;
 
             buildInputs = with pkgs; [
               openssl
@@ -61,6 +61,19 @@
               perl
             ];
           };
+        }
+      );
+
+      checks = forEachSupportedSystem (
+        { pkgs, ... }:
+        {
+          vibetree-tests = self.packages.${pkgs.system}.default.overrideAttrs (old: {
+            doCheck = true;
+            cargoTestFlags = [ "--lib" ];
+            nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ pkgs.git ];
+            buildPhase = "true";
+            installPhase = "mkdir -p $out";
+          });
         }
       );
 
