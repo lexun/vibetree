@@ -133,9 +133,23 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         }
 
         Commands::Switch { branch_name } => {
-            let app = VibeTreeApp::load_existing()
-                .context("No vibetree configuration found. Run `vibetree init` first.")?;
-            app.switch_to_worktree(branch_name)?;
+            // Try to load existing config, but fall back to simple directory navigation if none exists
+            match VibeTreeApp::load_existing() {
+                Ok(app) => {
+                    app.switch_to_worktree(branch_name)?;
+                }
+                Err(_) => {
+                    // No config exists - try simple directory navigation
+                    let app = VibeTreeApp::new()?;
+                    app.switch_to_worktree(branch_name)?;
+                    // Remove the config file created by VibeTreeApp::new() since we're in discovery mode
+                    let config_path = std::env::current_dir()?.join("vibetree.toml");
+                    if config_path.exists() {
+                        std::fs::remove_file(&config_path)
+                            .context("Failed to remove created config file")?;
+                    }
+                }
+            }
         }
     }
 
