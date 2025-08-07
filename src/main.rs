@@ -151,6 +151,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 }
             }
         }
+
     }
 
     Ok(())

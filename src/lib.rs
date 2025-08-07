@@ -500,7 +500,7 @@ impl VibeTreeApp {
 
         // Handle switch flag
         if switch {
-            println!("cd {}", worktree_path.display());
+            self.spawn_shell_in_directory(&worktree_path)?;
         }
 
         Ok(())
@@ -683,8 +683,43 @@ impl VibeTreeApp {
             ));
         }
 
-        // Output the cd command for the shell to execute
-        println!("cd {}", worktree_path.display());
+        // Spawn a shell in the target directory
+        self.spawn_shell_in_directory(&worktree_path)
+    }
+
+    /// Spawn a new shell in the specified directory
+    fn spawn_shell_in_directory(&self, path: &std::path::Path) -> Result<()> {
+        use std::process::Command;
+        
+        if !path.exists() {
+            return Err(anyhow::anyhow!("Directory does not exist: {}", path.display()));
+        }
+        
+        // Detect the user's shell
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+            // Default shells by OS
+            if cfg!(windows) {
+                "cmd".to_string()
+            } else {
+                "/bin/bash".to_string()
+            }
+        });
+        
+        println!("🚀 Starting new shell in {}", path.display());
+        println!("💡 Type 'exit' to return to your previous directory");
+        
+        // Spawn the shell in the target directory
+        let mut cmd = Command::new(&shell);
+        cmd.current_dir(path);
+        
+        // For interactive shells, we want them to replace our process
+        let status = cmd.status()
+            .with_context(|| format!("Failed to start shell: {}", shell))?;
+        
+        if !status.success() {
+            return Err(anyhow::anyhow!("Shell exited with error code: {:?}", status.code()));
+        }
+        
         Ok(())
     }
 

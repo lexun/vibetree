@@ -44,7 +44,7 @@ pub enum Commands {
         #[arg(long, help = "Show what would be added without making changes")]
         dry_run: bool,
 
-        #[arg(long, help = "Output cd command to switch to the newly created worktree")]
+        #[arg(long, help = "Switch to the newly created worktree directory")]
         switch: bool,
     },
 
@@ -76,7 +76,7 @@ pub enum Commands {
         dry_run: bool,
     },
 
-    #[command(about = "Output cd command to switch to an existing worktree directory")]
+    #[command(about = "Switch to an existing worktree directory")]
     Switch {
         #[arg(help = "Name of the branch/worktree to switch to")]
         branch_name: String,
