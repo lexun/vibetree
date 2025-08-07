@@ -43,6 +43,9 @@ pub enum Commands {
 
         #[arg(long, help = "Show what would be added without making changes")]
         dry_run: bool,
+
+        #[arg(long, help = "Switch to the newly created worktree directory")]
+        switch: bool,
     },
 
     #[command(about = "Remove git worktree and clean up port allocations")]

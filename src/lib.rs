@@ -341,6 +341,7 @@ impl VibeTreeApp {
         from_branch: Option<String>,
         custom_values: Option<Vec<u16>>,
         dry_run: bool,
+        switch: bool,
     ) -> Result<()> {
         info!("Adding worktree: {}", branch_name);
 
@@ -496,6 +497,11 @@ impl VibeTreeApp {
         println!(
             "    Use with process orchestrators like: docker compose --env-file .vibetree/env up"
         );
+
+        // Handle switch flag
+        if switch {
+            println!("cd {}", worktree_path.display());
+        }
 
         Ok(())
     }
