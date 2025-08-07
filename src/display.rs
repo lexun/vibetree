@@ -49,10 +49,7 @@ impl<'a> DisplayManager<'a> {
             return Ok(());
         }
 
-        println!(
-            "{:<20} {:<15} {:<50}",
-            "Name", "Status", "Values"
-        );
+        println!("{:<20} {:<15} {:<50}", "Name", "Status", "Values");
         println!("{}", "-".repeat(85));
 
         for data in worktree_data {

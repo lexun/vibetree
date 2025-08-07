@@ -16,7 +16,7 @@ impl IntegrationTestSetup {
     /// Create a new integration test setup with:
     /// - Temporary directory containing the git repository
     /// - Git repository is the root directory (no subdirectory)
-    /// - All worktrees will be in branches/ subdirectory
+    /// - All worktrees will be in .vibetree/branches/ subdirectory
     /// - Initial commit to make it usable
     fn new() -> Result<Self> {
         let temp_dir = TempDir::new()?;
@@ -89,12 +89,17 @@ impl IntegrationTestSetup {
 
     /// Helper to check if a worktree directory exists
     fn worktree_exists(&self, name: &str) -> bool {
-        self.repo_path.join("branches").join(name).exists()
+        self.repo_path
+            .join(".vibetree")
+            .join("branches")
+            .join(name)
+            .exists()
     }
 
     /// Helper to check if env file exists for a worktree
     fn env_file_exists(&self, name: &str) -> bool {
         self.repo_path
+            .join(".vibetree")
             .join("branches")
             .join(name)
             .join(".vibetree")
@@ -106,6 +111,7 @@ impl IntegrationTestSetup {
     fn read_env_file(&self, name: &str) -> Result<String> {
         let env_path = self
             .repo_path
+            .join(".vibetree")
             .join("branches")
             .join(name)
             .join(".vibetree")
@@ -117,6 +123,7 @@ impl IntegrationTestSetup {
     fn gitignore_has_vibetree(&self, name: &str) -> Result<bool> {
         let gitignore_path = self
             .repo_path
+            .join(".vibetree")
             .join("branches")
             .join(name)
             .join(".gitignore");
@@ -237,7 +244,13 @@ fn test_complete_vibetree_workflow() -> Result<()> {
     assert!(!setup.gitignore_has_vibetree("feature-auth")?);
 
     // Add .vibetree/ to gitignore
-    EnvFileGenerator::add_to_gitignore(&setup.repo_path.join("branches").join("feature-auth"))?;
+    EnvFileGenerator::add_to_gitignore(
+        &setup
+            .repo_path
+            .join(".vibetree")
+            .join("branches")
+            .join("feature-auth"),
+    )?;
     assert!(setup.gitignore_has_vibetree("feature-auth")?);
 
     // Step 7: Remove a worktree
@@ -305,7 +318,11 @@ fn test_worktree_validation() -> Result<()> {
     app.init(vec!["postgres".to_string()], false)?;
     app.create_worktree("test-branch".to_string(), None, None, false)?;
 
-    let worktree_path = setup.repo_path.join("branches").join("test-branch");
+    let worktree_path = setup
+        .repo_path
+        .join(".vibetree")
+        .join("branches")
+        .join("test-branch");
 
     // Test validation of complete worktree
     let validation = GitManager::validate_worktree_state(&worktree_path)?;
@@ -365,7 +382,12 @@ fn test_error_handling() -> Result<()> {
         false,
     );
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Expected 1 values"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Expected 1 values")
+    );
 
     Ok(())
 }
@@ -391,11 +413,7 @@ fn test_config_persistence() -> Result<()> {
         assert_eq!(app2.get_variables().len(), 2);
         assert_eq!(app2.get_worktrees().len(), 2); // main + persistent-test
         assert!(app2.get_worktrees().contains_key("persistent-test"));
-        assert!(
-            app2.get_variables()
-                .iter()
-                .any(|v| v.name == "POSTGRES")
-        );
+        assert!(app2.get_variables().iter().any(|v| v.name == "POSTGRES"));
         assert!(app2.get_variables().iter().any(|v| v.name == "REDIS"));
     }
 
@@ -490,7 +508,7 @@ fn test_sync_orphaned_worktree_discovery() -> Result<()> {
     app.create_worktree("normal-branch".to_string(), None, None, false)?;
 
     // Create an "orphaned" worktree directly with git (bypassing vibetree)
-    let branches_dir = setup.repo_path.join("branches");
+    let branches_dir = setup.repo_path.join(".vibetree").join("branches");
     std::fs::create_dir_all(&branches_dir)?;
 
     setup.run_git_cmd(&[
@@ -498,7 +516,7 @@ fn test_sync_orphaned_worktree_discovery() -> Result<()> {
         "add",
         "-b",
         "orphaned-branch",
-        "branches/orphaned-branch",
+        ".vibetree/branches/orphaned-branch",
         "main",
     ])?;
 
@@ -506,6 +524,7 @@ fn test_sync_orphaned_worktree_discovery() -> Result<()> {
     assert!(
         setup
             .repo_path
+            .join(".vibetree")
             .join("branches")
             .join("orphaned-branch")
             .exists()
@@ -523,15 +542,13 @@ fn test_sync_orphaned_worktree_discovery() -> Result<()> {
     let normal_ports = &app.get_worktrees()["normal-branch"].values;
 
     assert_eq!(orphaned_ports.len(), 2); // postgres and redis ports
-    assert_ne!(
-        orphaned_ports["POSTGRES"],
-        normal_ports["POSTGRES"]
-    );
+    assert_ne!(orphaned_ports["POSTGRES"], normal_ports["POSTGRES"]);
     assert_ne!(orphaned_ports["REDIS"], normal_ports["REDIS"]);
 
     // Verify env file was created
     let env_path = setup
         .repo_path
+        .join(".vibetree")
         .join("branches")
         .join("orphaned-branch")
         .join(".vibetree")
@@ -559,7 +576,12 @@ fn test_sync_missing_worktree_cleanup() -> Result<()> {
     assert!(app.get_worktrees().contains_key("temp-branch"));
 
     // Manually remove the git worktree (simulating external deletion)
-    setup.run_git_cmd(&["worktree", "remove", "--force", "branches/temp-branch"])?;
+    setup.run_git_cmd(&[
+        "worktree",
+        "remove",
+        "--force",
+        ".vibetree/branches/temp-branch",
+    ])?;
 
     // Verify git worktree is gone but still in config
     assert!(!setup.worktree_exists("temp-branch"));
@@ -674,7 +696,7 @@ fn test_sync_dry_run() -> Result<()> {
         "add",
         "-b",
         "orphaned",
-        "branches/orphaned",
+        ".vibetree/branches/orphaned",
         "main",
     ])?;
 

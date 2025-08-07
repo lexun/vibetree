@@ -59,7 +59,7 @@ impl VibeTreeApp {
             vibetree_parent,
         })
     }
-    
+
     /// Create a VibeTreeApp instance that only loads existing configuration (doesn't create new files)
     pub fn load_existing() -> Result<Self> {
         let vibetree_parent = VibeTreeConfig::get_vibetree_parent()
@@ -144,6 +144,9 @@ impl VibeTreeApp {
 
         self.save_config()?;
 
+        // Update .gitignore to include .vibetree directory
+        self.update_gitignore(&self.vibetree_parent)?;
+
         // Automatically sync to update all discovered worktrees with new configuration
         info!("Running sync to update all worktree configurations");
         self.sync(false)?;
@@ -168,7 +171,6 @@ impl VibeTreeApp {
                 "    Use with process orchestrators like: docker compose --env-file .vibetree/env up"
             );
         }
-        println!("[!] Add '.vibetree/' to your worktree .gitignore files");
 
         Ok(())
     }
@@ -298,10 +300,10 @@ impl VibeTreeApp {
         Ok(())
     }
 
-    /// Update .gitignore to include branches directory
+    /// Update .gitignore to include .vibetree directory
     fn update_gitignore(&self, repo_root: &std::path::Path) -> Result<()> {
         let gitignore_path = repo_root.join(".gitignore");
-        let branches_rule = format!("{}/", self.config.project_config.branches_dir);
+        let vibetree_rule = ".vibetree/";
 
         // Read existing .gitignore or create empty content
         let mut content = if gitignore_path.exists() {
@@ -313,8 +315,8 @@ impl VibeTreeApp {
         };
 
         // Check if rule already exists
-        if content.lines().any(|line| line.trim() == branches_rule) {
-            println!("[=] .gitignore already contains {} rule", branches_rule);
+        if content.lines().any(|line| line.trim() == vibetree_rule) {
+            println!("[=] .gitignore already contains {} rule", vibetree_rule);
             return Ok(());
         }
 
@@ -322,13 +324,13 @@ impl VibeTreeApp {
         if !content.is_empty() && !content.ends_with('\n') {
             content.push('\n');
         }
-        content.push_str(&format!("{}\n", branches_rule));
+        content.push_str(&format!("{}\n", vibetree_rule));
 
         std::fs::write(&gitignore_path, content).with_context(|| {
             format!("Failed to update .gitignore: {}", gitignore_path.display())
         })?;
 
-        println!("[+] Added {} to .gitignore", branches_rule);
+        println!("[+] Added {} to .gitignore", vibetree_rule);
         Ok(())
     }
 
@@ -650,10 +652,10 @@ mod tests {
 
     fn setup_test_app() -> Result<(TempDir, VibeTreeApp)> {
         let temp_dir = TempDir::new()?;
-        
+
         // Initialize a git repository in the temp directory for testing
         let repo = git2::Repository::init(temp_dir.path())?;
-        
+
         // Create initial commit to have a valid HEAD
         let sig = git2::Signature::now("Test", "test@example.com")?;
         let tree_id = {
@@ -661,15 +663,8 @@ mod tests {
             index.write_tree()?
         };
         let tree = repo.find_tree(tree_id)?;
-        repo.commit(
-            Some("HEAD"),
-            &sig,
-            &sig,
-            "Initial commit",
-            &tree,
-            &[],
-        )?;
-        
+        repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])?;
+
         let app = VibeTreeApp::with_parent(temp_dir.path().to_path_buf())?;
         Ok((temp_dir, app))
     }

@@ -51,14 +51,17 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 Err(_) => {
                     // No main config exists - only allow creation if no variables are needed (no ports specified)
                     if ports.is_some() {
-                        anyhow::bail!("Cannot create worktree with custom values when no configuration exists. Run 'vibetree init' first to configure variables.");
+                        anyhow::bail!(
+                            "Cannot create worktree with custom values when no configuration exists. Run 'vibetree init' first to configure variables."
+                        );
                     }
                     let mut app = VibeTreeApp::new()?;
                     app.create_worktree(branch_name, from, None, dry_run)?;
                     // Remove the config file created by VibeTreeApp::new() since we're in discovery mode
                     let config_path = std::env::current_dir()?.join("vibetree.toml");
                     if config_path.exists() {
-                        std::fs::remove_file(&config_path).context("Failed to remove created config file")?;
+                        std::fs::remove_file(&config_path)
+                            .context("Failed to remove created config file")?;
                     }
                 }
             }
@@ -81,7 +84,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                     // Remove the config file created by VibeTreeApp::new() since we're in discovery mode
                     let config_path = std::env::current_dir()?.join("vibetree.toml");
                     if config_path.exists() {
-                        std::fs::remove_file(&config_path).context("Failed to remove created config file")?;
+                        std::fs::remove_file(&config_path)
+                            .context("Failed to remove created config file")?;
                     }
                 }
             }
@@ -100,7 +104,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                     // Remove any config file that might have been created
                     let config_path = std::env::current_dir()?.join("vibetree.toml");
                     if config_path.exists() {
-                        std::fs::remove_file(&config_path).context("Failed to remove created config file")?;
+                        std::fs::remove_file(&config_path)
+                            .context("Failed to remove created config file")?;
                     }
                 }
             }
@@ -112,14 +117,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 Ok(mut app) => {
                     app.sync(dry_run)?;
                 }
-Err(_) => {
+                Err(_) => {
                     // No config exists - run sync in discovery mode
                     let mut app = VibeTreeApp::new()?;
                     app.sync(dry_run)?;
                     // Remove the created config file since sync shouldn't create it
                     let config_path = std::env::current_dir()?.join("vibetree.toml");
                     if config_path.exists() {
-                        std::fs::remove_file(&config_path).context("Failed to remove created config file")?;
+                        std::fs::remove_file(&config_path)
+                            .context("Failed to remove created config file")?;
                     }
                 }
             }

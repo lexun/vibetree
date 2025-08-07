@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 /// Variable configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableConfig {
-    pub name: String,          // Environment variable name
-    pub default_value: u16,    // Starting value
+    pub name: String,       // Environment variable name
+    pub default_value: u16, // Starting value
 }
 
 /// Shared project configuration - stored in vibetree.toml (checked into git)
@@ -40,7 +40,7 @@ pub struct VibeTreeConfig {
 }
 
 fn default_branches_dir() -> String {
-    "branches".to_string()
+    ".vibetree/branches".to_string()
 }
 
 fn default_env_file_path() -> String {
@@ -78,12 +78,12 @@ impl VibeTreeConfig {
     pub fn load_or_create() -> Result<Self> {
         Self::load_or_create_with_parent(None)
     }
-    
+
     /// Load existing configuration without creating new files
     pub fn load_existing() -> Result<Self> {
         Self::load_existing_with_parent(None)
     }
-    
+
     /// Load existing configuration with parent override without creating new files
     pub fn load_existing_with_parent(parent_override: Option<PathBuf>) -> Result<Self> {
         let project_config_path = if let Some(ref parent) = parent_override {
