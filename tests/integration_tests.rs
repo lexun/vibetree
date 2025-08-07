@@ -757,3 +757,35 @@ fn test_list_main_worktree_status() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_switch_to_existing_worktree() -> Result<()> {
+    let setup = IntegrationTestSetup::new()?;
+    let mut app = setup.create_app()?;
+
+    // Initialize and create a worktree
+    app.init(vec!["web".to_string()], false)?;
+    app.add_worktree("feature-branch".to_string(), None, None, false)?;
+
+    // Test switching to the worktree should succeed
+    let result = app.switch_to_worktree("feature-branch".to_string());
+    assert!(result.is_ok());
+
+    Ok(())
+}
+
+#[test]
+fn test_switch_to_nonexistent_worktree() -> Result<()> {
+    let setup = IntegrationTestSetup::new()?;
+    let mut app = setup.create_app()?;
+
+    // Initialize without creating any worktrees
+    app.init(vec!["web".to_string()], false)?;
+
+    // Test switching to non-existent worktree should fail
+    let result = app.switch_to_worktree("nonexistent-branch".to_string());
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("does not exist"));
+
+    Ok(())
+}

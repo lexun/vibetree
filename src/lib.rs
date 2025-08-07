@@ -623,6 +623,65 @@ impl VibeTreeApp {
         sync_manager.sync(dry_run)
     }
 
+    /// Switch to an existing worktree directory
+    pub fn switch_to_worktree(&self, branch_name: String) -> Result<()> {
+        info!("Switching to worktree: {}", branch_name);
+
+        // Check if this is the main branch
+        let current_branch = std::process::Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&self.vibetree_parent)
+            .output()
+            .context("Failed to get current branch")?;
+
+        let binding = String::from_utf8_lossy(&current_branch.stdout);
+        let current_branch_name = binding.trim();
+
+        if branch_name == current_branch_name {
+            // We're switching to main branch
+            println!("cd {}", self.vibetree_parent.display());
+            return Ok(());
+        }
+
+        // Check if worktree exists
+        let worktree_path = self
+            .vibetree_parent
+            .join(&self.config.project_config.branches_dir)
+            .join(&branch_name);
+
+        if !worktree_path.exists() {
+            return Err(anyhow::anyhow!(
+                "Worktree '{}' does not exist at {}",
+                branch_name,
+                worktree_path.display()
+            ));
+        }
+
+        // Check if it's actually a git worktree
+        let worktree_list = std::process::Command::new("git")
+            .args(["worktree", "list", "--porcelain"])
+            .current_dir(&self.vibetree_parent)
+            .output()
+            .context("Failed to list worktrees")?;
+
+        let worktree_list_str = String::from_utf8_lossy(&worktree_list.stdout);
+        let worktree_path_str = worktree_path.to_string_lossy();
+
+        if !worktree_list_str
+            .lines()
+            .any(|line| line.starts_with("worktree ") && line.contains(&*worktree_path_str))
+        {
+            return Err(anyhow::anyhow!(
+                "Directory '{}' exists but is not a git worktree",
+                worktree_path.display()
+            ));
+        }
+
+        // Output the cd command for the shell to execute
+        println!("cd {}", worktree_path.display());
+        Ok(())
+    }
+
     /// Internal method for testing - bypasses confirmation prompts
     /// DO NOT USE in production code - use remove_worktree instead
     #[doc(hidden)]

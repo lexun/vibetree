@@ -72,6 +72,12 @@ pub enum Commands {
         #[arg(long, help = "Show what would be repaired without making changes")]
         dry_run: bool,
     },
+
+    #[command(about = "Switch to an existing worktree directory")]
+    Switch {
+        #[arg(help = "Name of the branch/worktree to switch to")]
+        branch_name: String,
+    },
 }
 
 #[derive(Clone, Debug, ValueEnum)]

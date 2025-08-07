@@ -130,6 +130,12 @@ fn run(cli: Cli) -> anyhow::Result<()> {
                 }
             }
         }
+
+        Commands::Switch { branch_name } => {
+            let app = VibeTreeApp::load_existing()
+                .context("No vibetree configuration found. Run `vibetree init` first.")?;
+            app.switch_to_worktree(branch_name)?;
+        }
     }
 
     Ok(())
