@@ -27,6 +27,15 @@ impl<'a> SyncManager<'a> {
         let repo_path = GitManager::find_repo_root(self.vibetree_parent)
             .context("Not inside a git repository")?;
 
+        // First, prune invalid worktrees from git
+        if !dry_run {
+            if let Err(e) = GitManager::prune_worktrees(&repo_path) {
+                println!("⚠️  Warning: Failed to prune git worktrees: {}", e);
+            } else {
+                println!("[🧹] Pruned invalid git worktrees");
+            }
+        }
+
         // Discover all git worktrees
         let discovered_worktrees = GitManager::discover_worktrees(&repo_path)?;
         let branches_dir = self

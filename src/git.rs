@@ -113,6 +113,24 @@ impl GitManager {
         Ok(())
     }
 
+    /// Prune invalid worktrees from git configuration
+    pub fn prune_worktrees(repo_path: &Path) -> Result<()> {
+        use std::process::Command;
+
+        let output = Command::new("git")
+            .args(["worktree", "prune"])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to run git worktree prune")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("git worktree prune failed: {}", stderr);
+        }
+
+        Ok(())
+    }
+
     pub fn validate_worktree_state(worktree_path: &Path) -> Result<WorktreeValidation> {
         let mut validation = WorktreeValidation {
             exists: false,
