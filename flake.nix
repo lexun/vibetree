@@ -70,7 +70,7 @@
           vibetree-tests = self.packages.${pkgs.system}.default.overrideAttrs (old: {
             doCheck = true;
             cargoTestFlags = [ "--lib" ];
-            nativeBuildInputs = (old.nativeBuildInputs or []) ++ [ pkgs.git ];
+            nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.git ];
             buildPhase = "true";
             installPhase = "mkdir -p $out";
           });
@@ -90,7 +90,9 @@
               # https://devenv.sh/reference/options/
               {
                 languages.rust.enable = true;
-                packages = with pkgs; [ ];
+                packages = with pkgs; [
+                  just
+                ];
               }
             ];
           };
