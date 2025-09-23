@@ -633,58 +633,50 @@ impl VibeTreeApp {
     pub fn switch_to_worktree(&self, branch_name: String) -> Result<()> {
         info!("Switching to worktree: {}", branch_name);
 
-        // Check if this is the main branch
-        let current_branch = std::process::Command::new("git")
-            .args(["branch", "--show-current"])
-            .current_dir(&self.vibetree_parent)
-            .output()
-            .context("Failed to get current branch")?;
+        // Determine target directory
+        let target_path = if branch_name == self.config.project_config.main_branch {
+            // Switching to main branch - use root directory
+            self.vibetree_parent.clone()
+        } else {
+            // Switching to a worktree branch
+            let worktree_path = self
+                .vibetree_parent
+                .join(&self.config.project_config.branches_dir)
+                .join(&branch_name);
 
-        let binding = String::from_utf8_lossy(&current_branch.stdout);
-        let current_branch_name = binding.trim();
+            if !worktree_path.exists() {
+                return Err(anyhow::anyhow!(
+                    "Worktree '{}' does not exist at {}",
+                    branch_name,
+                    worktree_path.display()
+                ));
+            }
 
-        if branch_name == current_branch_name {
-            // We're switching to main branch
-            println!("cd {}", self.vibetree_parent.display());
-            return Ok(());
-        }
+            // Check if it's actually a git worktree
+            let worktree_list = std::process::Command::new("git")
+                .args(["worktree", "list", "--porcelain"])
+                .current_dir(&self.vibetree_parent)
+                .output()
+                .context("Failed to list worktrees")?;
 
-        // Check if worktree exists
-        let worktree_path = self
-            .vibetree_parent
-            .join(&self.config.project_config.branches_dir)
-            .join(&branch_name);
+            let worktree_list_str = String::from_utf8_lossy(&worktree_list.stdout);
+            let worktree_path_str = worktree_path.to_string_lossy();
 
-        if !worktree_path.exists() {
-            return Err(anyhow::anyhow!(
-                "Worktree '{}' does not exist at {}",
-                branch_name,
-                worktree_path.display()
-            ));
-        }
+            if !worktree_list_str
+                .lines()
+                .any(|line| line.starts_with("worktree ") && line.contains(&*worktree_path_str))
+            {
+                return Err(anyhow::anyhow!(
+                    "Directory '{}' exists but is not a git worktree",
+                    worktree_path.display()
+                ));
+            }
 
-        // Check if it's actually a git worktree
-        let worktree_list = std::process::Command::new("git")
-            .args(["worktree", "list", "--porcelain"])
-            .current_dir(&self.vibetree_parent)
-            .output()
-            .context("Failed to list worktrees")?;
-
-        let worktree_list_str = String::from_utf8_lossy(&worktree_list.stdout);
-        let worktree_path_str = worktree_path.to_string_lossy();
-
-        if !worktree_list_str
-            .lines()
-            .any(|line| line.starts_with("worktree ") && line.contains(&*worktree_path_str))
-        {
-            return Err(anyhow::anyhow!(
-                "Directory '{}' exists but is not a git worktree",
-                worktree_path.display()
-            ));
-        }
+            worktree_path
+        };
 
         // Spawn a shell in the target directory
-        self.spawn_shell_in_directory(&worktree_path)
+        self.spawn_shell_in_directory(&target_path)
     }
 
     /// Spawn a new shell in the specified directory
@@ -693,6 +685,52 @@ impl VibeTreeApp {
         
         if !path.exists() {
             return Err(anyhow::anyhow!("Directory does not exist: {}", path.display()));
+        }
+        
+        // Check if we're already in a vibetree subshell and switching to main
+        let current_depth = std::env::var("VIBETREE_DEPTH")
+            .unwrap_or_else(|_| "0".to_string())
+            .parse::<u32>()
+            .unwrap_or(0);
+        
+        let is_switching_to_main = path == self.vibetree_parent;
+        
+        // If we're in a subshell and switching back to main, use exec to replace the shell
+        if current_depth > 0 && is_switching_to_main {
+            println!("🔙 Returning to main directory");
+            
+            // Use exec to replace the current shell process with a new one in main directory
+            let shell_env = std::env::var("SHELL").unwrap_or_default();
+            let shell_name = shell_env.split('/').last().unwrap_or("bash");
+            
+            // Get the actual main directory path from stored environment or config
+            let main_path = std::env::var("VIBETREE_PREV_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| self.vibetree_parent.clone());
+            
+            // Try to find and terminate the current subshell to return to main
+            let shells = self.find_all_shell_processes();
+            if let Some((shell_pid, _)) = shells.first() {
+                // Terminate the current subshell with SIGTERM
+                let result = unsafe { libc::kill(*shell_pid, libc::SIGTERM) };
+                if result == 0 {
+                    std::process::exit(0);
+                } else {
+                    // Fallback to SIGKILL if SIGTERM fails
+                    unsafe { libc::kill(*shell_pid, libc::SIGKILL); }
+                    std::process::exit(0);
+                }
+            } else {
+                println!("❌ Could not find shell process to terminate");
+            }
+            
+            if shell_name.contains("nu") {
+                println!("💡 Manual fallback: cd {}; exit", main_path.display());
+            } else {
+                println!("💡 Manual fallback: exec bash -c 'cd {}; exec $SHELL'", main_path.display());
+            }
+            
+            return Ok(());
         }
         
         // Detect the user's shell
@@ -721,19 +759,98 @@ impl VibeTreeApp {
         
         println!("💡 Type 'exit' to return to your previous directory");
         
-        // Spawn the shell in the target directory
-        let mut cmd = Command::new(&shell);
-        cmd.current_dir(path);
+        // Get current directory to set as OLDPWD for cd - functionality
+        let current_dir = std::env::current_dir()
+            .unwrap_or_else(|_| self.vibetree_parent.clone());
         
-        // For interactive shells, we want them to replace our process
+        // For nushell, we need to handle it differently since it doesn't support all features
+        let shell_env = std::env::var("SHELL").unwrap_or_default();
+        let shell_name = shell_env.split('/').last().unwrap_or("bash");
+        
+        // Spawn the shell in the target directory with environment variables
+        let mut cmd = Command::new(&shell);
+        cmd.current_dir(path)
+            .env("VIBETREE_DEPTH", (current_depth + 1).to_string())
+            .env("VIBETREE_PREV_DIR", &current_dir)
+            .env("OLDPWD", &current_dir);
+            
+        // For nushell, add initialization script
+        if shell_name.contains("nu") {
+            let init_script = format!(
+                "$env.VIBETREE_DEPTH = {}; $env.VIBETREE_PREV_DIR = '{}'; $env.OLDPWD = '{}'", 
+                current_depth + 1, 
+                current_dir.display(), 
+                current_dir.display()
+            );
+            cmd.arg("-e").arg(&init_script);
+        }
+        
+        // Get current process PID to pass to the child shell
+        let parent_pid = std::process::id();
+        cmd.env("VIBETREE_SHELL_PID", parent_pid.to_string());
+        
+        // Spawn the interactive shell
         let status = cmd.status()
             .with_context(|| format!("Failed to start shell: {}", shell))?;
         
         if !status.success() {
+            // Check if this was a shell terminated by signal (normal for vibetree switching)
+            if status.code().is_none() {
+                return Ok(());
+            }
+            
             return Err(anyhow::anyhow!("Shell exited with error code: {:?}", status.code()));
         }
         
         Ok(())
+    }
+
+    /// Find all shell processes in the process tree to understand the hierarchy
+    fn find_all_shell_processes(&self) -> Vec<(i32, String)> {
+        let mut shells = Vec::new();
+        let mut pid = unsafe { libc::getppid() };
+        let mut depth = 0;
+        const MAX_DEPTH: u8 = 15; // Prevent infinite loops
+        
+        while depth < MAX_DEPTH {
+            // Get process name using ps command
+            if let Ok(output) = std::process::Command::new("ps")
+                .args(["-p", &pid.to_string(), "-o", "comm="])
+                .output()
+            {
+                if output.status.success() {
+                    let process_name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    
+                    // Check if this is a shell process (common shell names)
+                    if process_name.ends_with("sh") || process_name.ends_with("zsh") || 
+                       process_name.ends_with("bash") || process_name.ends_with("fish") ||
+                       process_name.contains("nu") {
+                        shells.push((pid, process_name.clone()));
+                    }
+                    
+                    // For any process, try to get its parent and continue walking up
+                    if let Ok(parent_output) = std::process::Command::new("ps")
+                        .args(["-p", &pid.to_string(), "-o", "ppid="])
+                        .output()
+                    {
+                        if parent_output.status.success() {
+                            if let Ok(parent_pid) = String::from_utf8_lossy(&parent_output.stdout)
+                                .trim()
+                                .parse::<i32>()
+                            {
+                                pid = parent_pid;
+                                depth += 1;
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            break;
+        }
+        
+        shells
     }
 
     /// Check if direnv is available in the system
@@ -780,14 +897,16 @@ impl VibeTreeApp {
     /// Set up direnv integration for the worktree
     fn setup_direnv_integration(&self, path: &std::path::Path) -> Result<()> {
         let envrc_path = path.join(".envrc");
-        let env_file_path = self.config.get_env_file_path(path);
+        
+        // Use a relative path that works from any worktree location
+        // The .env file is always in .vibetree/env relative to the worktree
+        let relative_env_path = ".vibetree/env";
+        let dotenv_line = format!("dotenv {}", relative_env_path);
         
         // Check if the .envrc file already sources our .env file
         if envrc_path.exists() {
             let existing_content = std::fs::read_to_string(&envrc_path)
                 .with_context(|| format!("Failed to read .envrc: {}", envrc_path.display()))?;
-            
-            let dotenv_line = format!("dotenv {}", env_file_path.display());
             
             // If it doesn't already contain our dotenv line, append it
             if !existing_content.contains(&dotenv_line) {
@@ -797,7 +916,7 @@ impl VibeTreeApp {
             }
         } else {
             // Create new .envrc file
-            let envrc_content = format!("# Auto-generated by vibetree\ndotenv {}", env_file_path.display());
+            let envrc_content = format!("# Auto-generated by vibetree\n{}", dotenv_line);
             std::fs::write(&envrc_path, envrc_content)
                 .with_context(|| format!("Failed to create .envrc: {}", envrc_path.display()))?;
         }

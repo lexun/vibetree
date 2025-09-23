@@ -810,6 +810,7 @@ dependencies = [
  "clap",
  "env_logger",
  "git2",
+ "libc",
  "log",
  "serde",
  "serde_json",
