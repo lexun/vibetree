@@ -27,7 +27,7 @@ pub use git::{DiscoveredWorktree, GitManager, WorktreeValidation};
 pub use validation::{ConfigValidator, ValidationResult};
 
 use anyhow::{Context, Result};
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -151,12 +151,12 @@ impl VibeTreeApp {
         info!("Running repair to update all worktree configurations");
         self.repair(false)?;
 
-        println!(
-            "[✓] Initialized vibetree configuration at {}",
+        info!(
+            "Initialized vibetree configuration at {}",
             self.vibetree_parent.join("vibetree.toml").display()
         );
-        println!(
-            "[*] Configured variables: {}",
+        info!(
+            "Configured variables: {}",
             self.config
                 .project_config
                 .variables
@@ -166,9 +166,9 @@ impl VibeTreeApp {
                 .join(", ")
         );
         if !self.config.project_config.variables.is_empty() {
-            println!("[+] Environment file created at .vibetree/env");
-            println!(
-                "    Use with process orchestrators like: docker compose --env-file .vibetree/env up"
+            info!("Environment file created at .vibetree/env");
+            info!(
+                "Use with process orchestrators like: docker compose --env-file .vibetree/env up"
             );
         }
 
@@ -208,8 +208,8 @@ impl VibeTreeApp {
                     branches_dir.display()
                 )
             })?;
-            println!(
-                "📁 Created {} directory for worktrees",
+            info!(
+                "Created {} directory for worktrees",
                 self.config.project_config.branches_dir
             );
         }
@@ -271,9 +271,9 @@ impl VibeTreeApp {
         // Save the configuration
         self.save_config()?;
 
-        println!("[✓] Successfully converted repository to vibetree-managed structure");
-        println!(
-            "[*] Configured variables: {}",
+        info!("Successfully converted repository to vibetree-managed structure");
+        info!(
+            "Configured variables: {}",
             self.config
                 .project_config
                 .variables
@@ -283,17 +283,17 @@ impl VibeTreeApp {
                 .join(", ")
         );
         if !self.config.project_config.variables.is_empty() {
-            println!("[+] Environment file created at .vibetree/env");
-            println!(
-                "    Use with process orchestrators like: docker compose --env-file .vibetree/env up"
+            info!("Environment file created at .vibetree/env");
+            info!(
+                "Use with process orchestrators like: docker compose --env-file .vibetree/env up"
             );
         }
-        println!(
-            "[>] Current branch '{}' remains active in repository root",
+        info!(
+            "Current branch '{}' remains active in repository root",
             current_branch
         );
-        println!(
-            "[/] Future worktrees will be created in {}/",
+        info!(
+            "Future worktrees will be created in {}/",
             self.config.project_config.branches_dir
         );
 
@@ -316,7 +316,7 @@ impl VibeTreeApp {
 
         // Check if rule already exists
         if content.lines().any(|line| line.trim() == vibetree_rule) {
-            println!("[=] .gitignore already contains {} rule", vibetree_rule);
+            debug!(".gitignore already contains {} rule", vibetree_rule);
             return Ok(());
         }
 
@@ -330,7 +330,7 @@ impl VibeTreeApp {
             format!("Failed to update .gitignore: {}", gitignore_path.display())
         })?;
 
-        println!("[+] Added {} to .gitignore", vibetree_rule);
+        info!("Added {} to .gitignore", vibetree_rule);
         Ok(())
     }
 
@@ -444,15 +444,15 @@ impl VibeTreeApp {
             // Remove from configuration since this was just a dry run
             self.config.remove_worktree(&branch_name)?;
 
-            println!("[?] Dry run - would add worktree '{}' with:", branch_name);
-            println!("  [/] Path: {}", worktree_path.display());
-            println!(
-                "  [>] Base branch: {}",
+            info!("Dry run - would add worktree '{}' with:", branch_name);
+            info!("  Path: {}", worktree_path.display());
+            info!(
+                "  Base branch: {}",
                 from_branch.as_deref().unwrap_or("HEAD")
             );
-            println!("  [#] Values:");
+            info!("  Values:");
             for (variable, value) in &values {
-                println!("    {} → {}", variable, value);
+                info!("    {} → {}", variable, value);
             }
             return Ok(());
         }
@@ -475,8 +475,8 @@ impl VibeTreeApp {
 
         // Check and suggest .gitignore update
         if !EnvFileGenerator::suggest_gitignore_update(&worktree_path)? {
-            println!(
-                "💡 Consider adding '.vibetree/' to {}/.gitignore",
+            info!(
+                "Consider adding '.vibetree/' to {}/.gitignore",
                 worktree_path.display()
             );
         }
@@ -484,18 +484,18 @@ impl VibeTreeApp {
         // Save configuration
         self.save_config()?;
 
-        println!(
-            "[✓] Added worktree '{}' at {}",
+        info!(
+            "Added worktree '{}' at {}",
             branch_name,
             worktree_path.display()
         );
-        println!("[#] Allocated values:");
+        info!("Allocated values:");
         for (variable, value) in &values {
-            println!("  {} → {}", variable, value);
+            info!("  {} → {}", variable, value);
         }
-        println!("[+] Environment file created at .vibetree/env");
-        println!(
-            "    Use with process orchestrators like: docker compose --env-file .vibetree/env up"
+        info!("Environment file created at .vibetree/env");
+        info!(
+            "Use with process orchestrators like: docker compose --env-file .vibetree/env up"
         );
 
         // Handle switch flag
@@ -541,8 +541,8 @@ impl VibeTreeApp {
             .join(&branch_name);
 
         if !force && prompt_for_confirmation {
-            println!(
-                "[!] Make sure no important processes are using the allocated ports before removing"
+            warn!(
+                "Make sure no important processes are using the allocated ports before removing"
             );
             print!(
                 "Are you sure you want to remove worktree '{}'? (y/N): ",
@@ -557,7 +557,7 @@ impl VibeTreeApp {
 
             let input = input.trim().to_lowercase();
             if input != "y" && input != "yes" {
-                println!("[X] Cancelled removal of worktree '{}'", branch_name);
+                info!("Cancelled removal of worktree '{}'", branch_name);
                 return Ok(());
             }
         }
@@ -581,9 +581,9 @@ impl VibeTreeApp {
             })?;
         }
 
-        println!("[✓] Removed worktree '{}'", branch_name);
+        info!("Removed worktree '{}'", branch_name);
         if keep_branch {
-            println!("[>] Kept git branch '{}'", branch_name);
+            info!("Kept git branch '{}'", branch_name);
         }
 
         Ok(())
@@ -697,7 +697,7 @@ impl VibeTreeApp {
         
         // If we're in a subshell and switching back to main, use exec to replace the shell
         if current_depth > 0 && is_switching_to_main {
-            println!("🔙 Returning to main directory");
+            info!("Returning to main directory");
             
             // Use exec to replace the current shell process with a new one in main directory
             let shell_env = std::env::var("SHELL").unwrap_or_default();
@@ -721,13 +721,13 @@ impl VibeTreeApp {
                     std::process::exit(0);
                 }
             } else {
-                println!("❌ Could not find shell process to terminate");
+                warn!("Could not find shell process to terminate");
             }
             
             if shell_name.contains("nu") {
-                println!("💡 Manual fallback: cd {}; exit", main_path.display());
+                info!("Manual fallback: cd {}; exit", main_path.display());
             } else {
-                println!("💡 Manual fallback: exec bash -c 'cd {}; exec $SHELL'", main_path.display());
+                info!("Manual fallback: exec bash -c 'cd {}; exec $SHELL'", main_path.display());
             }
             
             return Ok(());
@@ -743,21 +743,21 @@ impl VibeTreeApp {
             }
         });
         
-        println!("🚀 Starting new shell in {}", path.display());
+        info!("Starting new shell in {}", path.display());
         
         // Set up direnv integration if project uses direnv and root is allowed
         if self.project_uses_direnv() && self.is_direnv_available() {
             if !self.is_root_direnv_allowed() {
-                println!("⚠️  Direnv detected but not allowed in root directory");
-                println!("   Run 'direnv allow' in {} first", self.vibetree_parent.display());
+                warn!("Direnv detected but not allowed in root directory");
+                info!("Run 'direnv allow' in {} first", self.vibetree_parent.display());
             } else if let Err(e) = self.setup_direnv_integration(path) {
-                println!("⚠️  Warning: Failed to set up direnv: {}", e);
+                warn!("Failed to set up direnv: {}", e);
             } else {
-                println!("✅ Set up direnv for automatic environment loading");
+                info!("Set up direnv for automatic environment loading");
             }
         }
         
-        println!("💡 Type 'exit' to return to your previous directory");
+        info!("Type 'exit' to return to your previous directory");
         
         // Get current directory to set as OLDPWD for cd - functionality
         let current_dir = std::env::current_dir()

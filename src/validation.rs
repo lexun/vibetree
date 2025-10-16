@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::{error, warn};
 use std::collections::{HashMap, HashSet};
 
 use crate::config::{VariableConfig, VibeTreeConfig};
@@ -198,16 +199,16 @@ impl ValidationResult {
 
     pub fn report(&self) {
         if !self.errors.is_empty() {
-            println!("Configuration errors:");
+            error!("Configuration errors:");
             for error in &self.errors {
-                println!("  [✗] {}", error);
+                error!("{}", error);
             }
         }
 
         if !self.warnings.is_empty() {
-            println!("Configuration warnings:");
+            warn!("Configuration warnings:");
             for warning in &self.warnings {
-                println!("  [⚠] {}", warning);
+                warn!("{}", warning);
             }
         }
     }

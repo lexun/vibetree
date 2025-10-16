@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::info;
+use log::{info, warn};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -30,9 +30,9 @@ impl<'a> SyncManager<'a> {
         // First, prune invalid worktrees from git
         if !dry_run {
             if let Err(e) = GitManager::prune_worktrees(&repo_path) {
-                println!("⚠️  Warning: Failed to prune git worktrees: {}", e);
+                warn!("Failed to prune git worktrees: {}", e);
             } else {
-                println!("[🧹] Pruned invalid git worktrees");
+                info!("Pruned invalid git worktrees");
             }
         }
 
@@ -45,7 +45,7 @@ impl<'a> SyncManager<'a> {
         let sync_plan = self.analyze_sync_needs(&discovered_worktrees, &branches_dir)?;
 
         if !sync_plan.needs_changes() {
-            println!("[✓] Configuration is synchronized");
+            info!("Configuration is synchronized");
             self.update_env_files(&branches_dir)?;
             return Ok(());
         }
@@ -54,7 +54,7 @@ impl<'a> SyncManager<'a> {
         sync_plan.report();
 
         if dry_run {
-            println!("[?] Dry run - no changes made");
+            info!("Dry run - no changes made");
             return Ok(());
         }
 
@@ -142,8 +142,8 @@ impl<'a> SyncManager<'a> {
 
         // Add orphaned worktrees to config
         for (branch_name, worktree_path) in plan.orphaned_worktrees {
-            println!(
-                "[+] Adding orphaned worktree '{}' to configuration",
+            info!(
+                "Adding orphaned worktree '{}' to configuration",
                 branch_name
             );
 
@@ -171,8 +171,8 @@ impl<'a> SyncManager<'a> {
                     branch_name, e
                 ));
             } else {
-                println!(
-                    "  [+] Generated environment file at {}",
+                info!(
+                    "Generated environment file at {}",
                     env_file_path.display()
                 );
             }
@@ -180,8 +180,8 @@ impl<'a> SyncManager<'a> {
 
         // Remove missing worktrees from config
         for branch_name in plan.missing_worktrees {
-            println!(
-                "[-] Removing missing worktree '{}' from configuration",
+            info!(
+                "Removing missing worktree '{}' from configuration",
                 branch_name
             );
             if let Err(e) = self.config.remove_worktree(&branch_name) {
@@ -194,7 +194,7 @@ impl<'a> SyncManager<'a> {
 
         // Update config mismatches and regenerate env files for all worktrees
         for branch_name in plan.config_mismatches {
-            println!("[~] Updating variable configuration for '{}'", branch_name);
+            info!("Updating variable configuration for '{}'", branch_name);
             match self
                 .config
                 .add_or_update_worktree(branch_name.clone(), None)
@@ -215,8 +215,8 @@ impl<'a> SyncManager<'a> {
                             branch_name, e
                         ));
                     } else {
-                        println!(
-                            "  [~] Updated environment file at {}",
+                        info!(
+                            "Updated environment file at {}",
                             env_file_path.display()
                         );
                     }
@@ -239,14 +239,14 @@ impl<'a> SyncManager<'a> {
         }
 
         if sync_errors.is_empty() {
-            println!("[✓] Synchronization completed successfully");
+            info!("Synchronization completed successfully");
         } else {
-            println!(
-                "[!] Synchronization completed with {} errors:",
+            warn!(
+                "Synchronization completed with {} errors:",
                 sync_errors.len()
             );
             for error in sync_errors {
-                println!("  [✗] {}", error);
+                warn!("{}", error);
             }
         }
 
@@ -282,8 +282,8 @@ impl<'a> SyncManager<'a> {
 
         // If there's a conflict, reassign the conflicting worktree first
         if let Some(conflicting_name) = conflicting_worktree {
-            println!(
-                "  [~] Reassigning ports for '{}' to avoid conflict with main branch",
+            info!(
+                "Reassigning ports for '{}' to avoid conflict with main branch",
                 conflicting_name
             );
             match self
@@ -346,12 +346,12 @@ impl<'a> SyncManager<'a> {
         }
 
         if !env_errors.is_empty() {
-            println!(
-                "[!] Environment file synchronization completed with {} errors:",
+            warn!(
+                "Environment file synchronization completed with {} errors:",
                 env_errors.len()
             );
             for error in env_errors {
-                println!("  [✗] {}", error);
+                warn!("{}", error);
             }
         }
 
@@ -412,26 +412,26 @@ impl SyncPlan {
     }
 
     fn report(&self) {
-        println!("[!] Synchronization needed:");
+        info!("Synchronization needed:");
 
         if !self.orphaned_worktrees.is_empty() {
-            println!("  [+] Orphaned worktrees to add to config:");
+            info!("  Orphaned worktrees to add to config:");
             for (branch, path) in &self.orphaned_worktrees {
-                println!("    {} ({})", branch, path.display());
+                info!("    {} ({})", branch, path.display());
             }
         }
 
         if !self.missing_worktrees.is_empty() {
-            println!("  [-] Missing worktrees to remove from config:");
+            info!("  Missing worktrees to remove from config:");
             for branch in &self.missing_worktrees {
-                println!("    {}", branch);
+                info!("    {}", branch);
             }
         }
 
         if !self.config_mismatches.is_empty() {
-            println!("  [~] Worktrees with outdated variable configuration:");
+            info!("  Worktrees with outdated variable configuration:");
             for branch in &self.config_mismatches {
-                println!("    {}", branch);
+                info!("    {}", branch);
             }
         }
     }
