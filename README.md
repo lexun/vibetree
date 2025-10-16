@@ -18,24 +18,83 @@ Vibetree manages Git work trees while automatically allocating distinct ports fo
 
 ## Usage
 
+### Commands
+
+#### Initialize
 ```bash
 # Initialize vibetree in a repository
 vibetree init --variables web,api,db
 
-# Or specify custom starting ports
-vibetree init --variables web:3000,api:8080,db:5432
+# Convert existing git repo to vibetree-managed structure
+vibetree init --variables web,api,db --convert-repo
+```
 
-# Create a new work tree with allocated ports
-vibetree create feature-branch
+#### Add Worktrees
+```bash
+# Add a new worktree
+vibetree add feature-branch
 
-# Work trees are created in the branches/ directory by default
-cd branches/feature-branch
+# Add worktree from a specific branch
+vibetree add feature-branch --from main
 
-# List work trees and their port assignments
+# Add worktree with custom port assignments
+vibetree add feature-branch --ports 3000,8080,5432
+
+# Add worktree and switch to it immediately
+vibetree add feature-branch --switch
+
+# Preview what would be added without making changes
+vibetree add feature-branch --dry-run
+```
+
+#### List Worktrees
+```bash
+# List all worktrees with their port allocations
 vibetree list
 
-# Remove a work tree
+# List in different formats
+vibetree list --format table
+vibetree list --format json
+vibetree list --format yaml
+```
+
+#### Remove Worktrees
+```bash
+# Remove a worktree
 vibetree remove feature-branch
+
+# Force removal even if processes are running on allocated ports
+vibetree remove feature-branch --force
+
+# Remove worktree but keep the git branch
+vibetree remove feature-branch --keep-branch
+```
+
+#### Switch Between Worktrees
+```bash
+# Switch to an existing worktree directory
+vibetree switch feature-branch
+```
+
+#### Repair Configuration
+```bash
+# Repair configuration and discover orphaned worktrees
+vibetree repair
+
+# Preview what would be repaired without making changes
+vibetree repair --dry-run
+```
+
+#### Global Options
+```bash
+# Enable verbose output for any command
+vibetree --verbose <command>
+
+# Show help for any command
+vibetree <command> --help
+
+# Show version
+vibetree --version
 ```
 
 ## License
