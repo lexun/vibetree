@@ -22,12 +22,6 @@ pub enum Commands {
             value_delimiter = ','
         )]
         variables: Vec<String>,
-
-        #[arg(
-            long,
-            help = "Convert current git repo into vibetree-managed structure in-place"
-        )]
-        convert_repo: bool,
     },
 
     #[command(about = "Add new git worktree with isolated port configuration")]

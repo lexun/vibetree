@@ -24,9 +24,6 @@ Vibetree manages Git work trees while automatically allocating distinct ports fo
 ```bash
 # Initialize vibetree in a repository
 vibetree init --variables web,api,db
-
-# Convert existing git repo to vibetree-managed structure
-vibetree init --variables web,api,db --convert-repo
 ```
 
 #### Add Worktrees

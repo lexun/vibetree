@@ -28,13 +28,10 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     }
 
     match cli.command {
-        Commands::Init {
-            variables,
-            convert_repo,
-        } => {
+        Commands::Init { variables } => {
             // Init command can create configuration if it doesn't exist
             let mut app = VibeTreeApp::new()?;
-            app.init(variables, convert_repo)?;
+            app.init(variables)?;
         }
 
         Commands::Add {

@@ -80,14 +80,8 @@ impl VibeTreeApp {
     }
 
     /// Initialize vibetree configuration
-    pub fn init(&mut self, variables: Vec<String>, convert_repo: bool) -> Result<()> {
+    pub fn init(&mut self, variables: Vec<String>) -> Result<()> {
         info!("Initializing vibetree configuration");
-
-        // Handle repository conversion if requested
-        if convert_repo {
-            self.convert_existing_repo(&variables)?;
-            return Ok(());
-        }
 
         // Clear existing configuration to start fresh
         self.config.project_config.variables.clear();
@@ -175,130 +169,6 @@ impl VibeTreeApp {
         Ok(())
     }
 
-    /// Convert existing git repository to vibetree-managed structure in-place
-    fn convert_existing_repo(&mut self, variables: &[String]) -> Result<()> {
-        let current_dir = std::env::current_dir().context("Failed to get current directory")?;
-
-        // Validate conversion is possible and needed
-        if !GitManager::is_git_repo_root(&current_dir) {
-            anyhow::bail!(
-                "Current directory is not a git repository root. Run this command from the root of your git repository."
-            );
-        }
-
-        if GitManager::is_vibetree_configured(&current_dir) {
-            anyhow::bail!("Repository is already managed by vibetree (vibetree.toml exists).");
-        }
-
-        info!(
-            "Converting repository at {} to vibetree-managed structure",
-            current_dir.display()
-        );
-
-        // Get current branch name for informational purposes
-        let current_branch =
-            GitManager::get_current_branch(&current_dir).unwrap_or_else(|_| "main".to_string());
-
-        // Create branches directory
-        let branches_dir = current_dir.join(&self.config.project_config.branches_dir);
-        if !branches_dir.exists() {
-            std::fs::create_dir_all(&branches_dir).with_context(|| {
-                format!(
-                    "Failed to create branches directory: {}",
-                    branches_dir.display()
-                )
-            })?;
-            info!(
-                "Created {} directory for worktrees",
-                self.config.project_config.branches_dir
-            );
-        }
-
-        // Update .gitignore to include branches directory
-        self.update_gitignore(&current_dir)?;
-
-        // Configure variables
-        if !variables.is_empty() {
-            for variable_spec in variables {
-                if let Some((variable, port_str)) = variable_spec.split_once(':') {
-                    let port = port_str.parse::<u16>().with_context(|| {
-                        format!("Invalid port '{}' for variable '{}'", port_str, variable)
-                    })?;
-
-                    // Use variable name as-is (already should be a proper env var name)
-                    let env_var_name = variable.to_uppercase();
-
-                    self.config.project_config.variables.push(VariableConfig {
-                        name: env_var_name,
-                        default_value: port,
-                    });
-                } else {
-                    // Variable without port - use default incremental port
-                    let default_port =
-                        8000 + (self.config.project_config.variables.len() as u16 * 100);
-                    let env_var_name = variable_spec.to_uppercase();
-
-                    self.config.project_config.variables.push(VariableConfig {
-                        name: env_var_name,
-                        default_value: default_port,
-                    });
-                }
-            }
-        }
-
-        // Add or update the main branch to branches configuration if variables are configured
-        if !self.config.project_config.variables.is_empty() {
-            // Create value mapping for main branch using base variable values
-            let mut main_branch_values = HashMap::new();
-            for variable in &self.config.project_config.variables {
-                main_branch_values.insert(variable.name.clone(), variable.default_value);
-            }
-
-            // Add or update main branch with the base variable values to branches.toml
-            self.config
-                .add_or_update_worktree(current_branch.clone(), Some(main_branch_values.clone()))?;
-
-            // Generate env file for the main worktree
-            let env_file_path = self.config.get_env_file_path(&self.vibetree_parent);
-            EnvFileGenerator::generate_env_file(
-                &env_file_path,
-                &current_branch,
-                &main_branch_values,
-            )
-            .context("Failed to generate environment file for main worktree")?;
-        }
-
-        // Save the configuration
-        self.save_config()?;
-
-        info!("Successfully converted repository to vibetree-managed structure");
-        info!(
-            "Configured variables: {}",
-            self.config
-                .project_config
-                .variables
-                .iter()
-                .map(|v| format!("{}:{}", v.name, v.default_value))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        if !self.config.project_config.variables.is_empty() {
-            info!("Environment file created at .vibetree/env");
-            info!(
-                "Use with process orchestrators like: docker compose --env-file .vibetree/env up"
-            );
-        }
-        info!(
-            "Current branch '{}' remains active in repository root",
-            current_branch
-        );
-        info!(
-            "Future worktrees will be created in {}/",
-            self.config.project_config.branches_dir
-        );
-
-        Ok(())
-    }
 
     /// Update .gitignore to include .vibetree directory
     fn update_gitignore(&self, repo_root: &std::path::Path) -> Result<()> {
