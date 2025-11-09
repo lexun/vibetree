@@ -78,7 +78,7 @@
       );
 
       overlays.default = final: prev: {
-        vibetree = self.packages.${final.system}.default;
+        vibetree = self.packages.${final.stdenv.hostPlatform.system}.default;
       };
 
       devShells = forEachSupportedSystem (
