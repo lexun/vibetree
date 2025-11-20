@@ -12,7 +12,7 @@ use crate::git::GitManager;
 pub struct WorktreeDisplayData {
     pub name: String,
     pub status: String,
-    pub values: HashMap<String, u16>,
+    pub values: HashMap<String, String>,
     #[serde(skip)]
     pub values_display: String,
 }

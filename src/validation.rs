@@ -28,7 +28,6 @@ impl ConfigValidator {
     fn validate_project_config(variables: &[VariableConfig], result: &mut ValidationResult) {
         // Check for duplicate variable names
         let mut seen_names = HashSet::new();
-        let mut seen_ports = HashSet::new();
 
         for variable in variables {
             // Check for duplicate variable names
@@ -36,26 +35,78 @@ impl ConfigValidator {
                 result.add_error(format!("Duplicate variable name: '{}'", variable.name));
             }
 
-            // Check for duplicate default values
-            if !seen_ports.insert(variable.default_value) {
+            // Validate value field
+            if let Some(ref value) = variable.value {
+                match value {
+                    toml::Value::Integer(num) => {
+                        // Bare number - validate type field and value
+                        if variable.r#type.is_none() {
+                            result.add_warning(format!(
+                                "Variable '{}' has a bare number value but no 'type' field. \
+                                 Add type = \"port\" or type = \"int\" to your config.",
+                                variable.name
+                            ));
+                        }
+
+                        // Validate value is in valid range
+                        if *num < 0 || *num > 65535 {
+                            result.add_error(format!(
+                                "Variable '{}' has invalid value: {} (must be 0-65535)",
+                                variable.name, num
+                            ));
+                        }
+
+                        if *num == 0 {
+                            result.add_error(format!(
+                                "Invalid value 0 for variable '{}'",
+                                variable.name
+                            ));
+                        }
+
+                        // Check for system reserved ports if it's a port type
+                        if let Some(crate::config::VariableType::Port) = variable.r#type {
+                            let reserved_ports = PortManager::get_system_reserved_ports();
+                            if let Ok(port) = u16::try_from(*num) {
+                                if reserved_ports.contains(&port) {
+                                    result.add_warning(format!(
+                                        "Variable '{}' uses system reserved port {}",
+                                        variable.name, port
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    toml::Value::String(s) => {
+                        // String value - validate template if it has components
+                        if let Err(e) = crate::template::ParsedTemplate::parse(s) {
+                            result.add_error(format!(
+                                "Invalid template for variable '{}': {}",
+                                variable.name, e
+                            ));
+                        }
+                    }
+                    _ => {
+                        result.add_error(format!(
+                            "Variable '{}' has unsupported value type. Expected integer or string.",
+                            variable.name
+                        ));
+                    }
+                }
+            } else {
                 result.add_error(format!(
-                    "Duplicate default value: {} (used by '{}')",
-                    variable.default_value, variable.name
+                    "Variable '{}' must have a 'value' field",
+                    variable.name
                 ));
             }
 
-            // Validate value is in valid range
-            if variable.default_value == 0 {
-                result.add_error(format!("Invalid value 0 for variable '{}'", variable.name));
-            }
-
-            // Check for system reserved ports (still relevant for port variables)
-            let reserved_ports = PortManager::get_system_reserved_ports();
-            if reserved_ports.contains(&variable.default_value) {
-                result.add_warning(format!(
-                    "Variable '{}' uses system reserved port {}",
-                    variable.name, variable.default_value
-                ));
+            // Validate branch pattern if present
+            if let Some(ref branch_pattern) = variable.branch {
+                if let Err(e) = regex::Regex::new(branch_pattern) {
+                    result.add_error(format!(
+                        "Invalid regex pattern for variable '{}': {}",
+                        variable.name, e
+                    ));
+                }
             }
 
             // Validate variable name format
@@ -112,20 +163,24 @@ impl ConfigValidator {
 
     /// Validate value allocations across all worktrees
     fn validate_value_allocations(config: &VibeTreeConfig, result: &mut ValidationResult) {
-        let mut port_usage: HashMap<u16, Vec<String>> = HashMap::new();
+        let mut value_usage: HashMap<String, Vec<String>> = HashMap::new();
 
-        // Collect all value usage
+        // Collect all value usage (only flag duplicates for numeric/port values)
         for (worktree_name, worktree_config) in &config.branches_config.worktrees {
-            for (var_name, &value) in &worktree_config.values {
-                port_usage
-                    .entry(value)
-                    .or_insert_with(Vec::new)
-                    .push(format!("{}:{}", worktree_name, var_name));
+            for (var_name, value) in &worktree_config.values {
+                // Only track numeric values for conflict detection (ports)
+                // Non-numeric values like "production" can be duplicated across worktrees
+                if value.parse::<u16>().is_ok() {
+                    value_usage
+                        .entry(value.clone())
+                        .or_insert_with(Vec::new)
+                        .push(format!("{}:{}", worktree_name, var_name));
+                }
             }
         }
 
-        // Check for value conflicts
-        for (value, usage) in port_usage {
+        // Check for value conflicts (only for numeric values)
+        for (value, usage) in value_usage {
             if usage.len() > 1 {
                 result.add_error(format!(
                     "Value {} is used by multiple services: {}",
@@ -236,11 +291,15 @@ mod tests {
         let variables = vec![
             VariableConfig {
                 name: "POSTGRES_PORT".to_string(),
-                default_value: 5432,
+                value: Some(toml::Value::Integer(5432)),
+                r#type: Some(crate::config::VariableType::Port),
+                branch: None,
             },
             VariableConfig {
                 name: "POSTGRES_PORT".to_string(), // Duplicate name
-                default_value: 5433,
+                value: Some(toml::Value::Integer(5433)),
+                r#type: Some(crate::config::VariableType::Port),
+                branch: None,
             },
         ];
 
@@ -265,7 +324,9 @@ mod tests {
             version: "1".to_string(),
             variables: vec![VariableConfig {
                 name: "POSTGRES_PORT".to_string(),
-                default_value: 5432,
+                value: Some(toml::Value::Integer(5432)),
+                r#type: Some(crate::config::VariableType::Port),
+                branch: None,
             }],
             main_branch: "main".to_string(),
             branches_dir: "branches".to_string(),
@@ -274,10 +335,10 @@ mod tests {
 
         // Create two worktrees with conflicting value assignments
         let mut worktree1_values = HashMap::new();
-        worktree1_values.insert("POSTGRES_PORT".to_string(), 5432);
+        worktree1_values.insert("POSTGRES_PORT".to_string(), "5432".to_string());
 
         let mut worktree2_values = HashMap::new();
-        worktree2_values.insert("POSTGRES_PORT".to_string(), 5432); // Same value!
+        worktree2_values.insert("POSTGRES_PORT".to_string(), "5432".to_string()); // Same value!
 
         config.branches_config = VibeTreeBranchesConfig {
             version: "1".to_string(),

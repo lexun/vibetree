@@ -4,11 +4,24 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Variable type for bare number values
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VariableType {
+    Port,
+    Int,
+}
+
 /// Variable configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VariableConfig {
-    pub name: String,       // Environment variable name
-    pub default_value: u16, // Starting value
+    pub name: String, // Environment variable name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<toml::Value>, // Can be: bare number (with type field), template string, or static string
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<VariableType>, // Required when value is a bare number
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>, // Optional regex pattern to match branch names
 }
 
 /// Shared project configuration - stored in vibetree.toml (checked into git)
@@ -50,7 +63,7 @@ fn default_env_file_path() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorktreeConfig {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub values: HashMap<String, u16>, // env_var_name -> value
+    pub values: HashMap<String, String>, // env_var_name -> allocated value (stored as string)
 }
 
 impl Default for VibeTreeProjectConfig {
@@ -250,14 +263,14 @@ impl VibeTreeConfig {
     pub fn add_or_update_worktree(
         &mut self,
         name: String,
-        custom_values: Option<HashMap<String, u16>>,
-    ) -> Result<HashMap<String, u16>> {
+        custom_values: Option<HashMap<String, String>>,
+    ) -> Result<HashMap<String, String>> {
         let values = if let Some(custom) = custom_values {
             // Check for conflicts with existing worktrees (excluding the one we're updating)
-            for (variable, &value) in custom.iter() {
+            for (variable, value) in custom.iter() {
                 for (existing_name, existing_worktree) in &self.branches_config.worktrees {
                     if existing_name != &name
-                        && existing_worktree.values.values().any(|p| *p == value)
+                        && existing_worktree.values.values().any(|p| p == value)
                     {
                         anyhow::bail!(
                             "Value {} (for variable '{}') is already allocated to worktree '{}'",
@@ -290,17 +303,17 @@ impl VibeTreeConfig {
     pub fn add_worktree(
         &mut self,
         name: String,
-        custom_values: Option<HashMap<String, u16>>,
-    ) -> Result<HashMap<String, u16>> {
+        custom_values: Option<HashMap<String, String>>,
+    ) -> Result<HashMap<String, String>> {
         if self.branches_config.worktrees.contains_key(&name) {
             anyhow::bail!("Worktree '{}' already exists", name);
         }
 
         let values = if let Some(custom) = custom_values {
             // Check for conflicts with existing worktrees
-            for (variable, &value) in custom.iter() {
+            for (variable, value) in custom.iter() {
                 for (existing_name, existing_worktree) in &self.branches_config.worktrees {
-                    if existing_worktree.values.values().any(|p| *p == value) {
+                    if existing_worktree.values.values().any(|p| p == value) {
                         anyhow::bail!(
                             "Value {} (for variable '{}') is already allocated to worktree '{}'",
                             value,
@@ -364,34 +377,14 @@ impl VibeTreeConfig {
 impl VibeTreeProjectConfig {
     pub fn allocate_values(
         &self,
-        _worktree_name: &str,
+        worktree_name: &str,
         existing_worktrees: &HashMap<String, WorktreeConfig>,
-    ) -> Result<HashMap<String, u16>> {
-        let mut allocated_values = HashMap::new();
-        let used_values = Self::get_all_used_values(existing_worktrees);
-
-        for variable in &self.variables {
-            let mut value = variable.default_value;
-            while used_values.contains(&value) {
-                value += 1;
-            }
-
-            allocated_values.insert(variable.name.clone(), value);
-        }
-
-        Ok(allocated_values)
-    }
-
-    fn get_all_used_values(
-        existing_worktrees: &HashMap<String, WorktreeConfig>,
-    ) -> std::collections::HashSet<u16> {
-        let mut used = std::collections::HashSet::new();
-        for worktree in existing_worktrees.values() {
-            for value in worktree.values.values() {
-                used.insert(*value);
-            }
-        }
-        used
+    ) -> Result<HashMap<String, String>> {
+        crate::allocator::VariableAllocator::allocate_values(
+            &self.variables,
+            worktree_name,
+            existing_worktrees,
+        )
     }
 }
 
@@ -442,7 +435,9 @@ mod tests {
         // Add some variables first
         config.project_config.variables.push(VariableConfig {
             name: "TEST_SERVICE_PORT".to_string(),
-            default_value: 8000,
+            value: Some(toml::Value::Integer(8000)),
+            r#type: Some(crate::config::VariableType::Port),
+            branch: None,
         });
 
         let values1 = config.add_worktree("branch1".to_string(), None)?;
@@ -456,8 +451,14 @@ mod tests {
 
         // Verify values start from the configured starting value
         for variable in &config.project_config.variables {
-            assert!(values1[&variable.name] >= variable.default_value);
-            assert!(values2[&variable.name] >= variable.default_value);
+            if let Some(toml::Value::Integer(base_value)) = variable.value {
+                if let Ok(base_u16) = u16::try_from(base_value) {
+                    let value1: u16 = values1[&variable.name].parse().unwrap();
+                    let value2: u16 = values2[&variable.name].parse().unwrap();
+                    assert!(value1 >= base_u16);
+                    assert!(value2 >= base_u16);
+                }
+            }
         }
 
         Ok(())
@@ -476,7 +477,9 @@ mod tests {
         // Add a variable for testing
         config.project_config.variables.push(VariableConfig {
             name: "TEST_SERVICE_PORT".to_string(),
-            default_value: 8000,
+            value: Some(toml::Value::Integer(8000)),
+            r#type: Some(crate::config::VariableType::Port),
+            branch: None,
         });
 
         config.add_worktree("test-branch".to_string(), None)?;
@@ -516,7 +519,9 @@ mod tests {
         // Add a variable for testing
         config.project_config.variables.push(VariableConfig {
             name: "TEST_SERVICE_PORT".to_string(),
-            default_value: 8000,
+            value: Some(toml::Value::Integer(8000)),
+            r#type: Some(crate::config::VariableType::Port),
+            branch: None,
         });
 
         config

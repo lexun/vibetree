@@ -6,6 +6,7 @@
 //! - Environment file generation for process orchestration
 //! - Configuration management and state reconciliation
 
+pub mod allocator;
 pub mod cli;
 pub mod config;
 pub mod display;
@@ -13,6 +14,7 @@ pub mod env;
 pub mod git;
 pub mod ports;
 pub mod sync;
+pub mod template;
 pub mod validation;
 
 /// Current version of vibetree from Cargo.toml
@@ -99,7 +101,9 @@ impl VibeTreeApp {
 
                     self.config.project_config.variables.push(VariableConfig {
                         name: env_var_name,
-                        default_value: port,
+                        value: Some(toml::Value::Integer(port as i64)),
+                        r#type: Some(crate::config::VariableType::Port),
+                        branch: None,
                     });
                 } else {
                     // Variable without port - use default incremental port
@@ -109,7 +113,9 @@ impl VibeTreeApp {
 
                     self.config.project_config.variables.push(VariableConfig {
                         name: env_var_name,
-                        default_value: default_port,
+                        value: Some(toml::Value::Integer(default_port as i64)),
+                        r#type: Some(crate::config::VariableType::Port),
+                        branch: None,
                     });
                 }
             }
@@ -120,13 +126,12 @@ impl VibeTreeApp {
             let main_branch = GitManager::get_current_branch(&self.vibetree_parent)
                 .unwrap_or_else(|_| self.config.project_config.main_branch.clone());
 
-            // Create value mapping for main branch using base variable values
-            let mut main_branch_values = HashMap::new();
-            for variable in &self.config.project_config.variables {
-                main_branch_values.insert(variable.name.clone(), variable.default_value);
-            }
+            // Allocate values for the main branch using the new allocator
+            let existing_worktrees = HashMap::new(); // Empty since this is init
+            let main_branch_values = self.config.project_config
+                .allocate_values(&main_branch, &existing_worktrees)?;
 
-            // Add or update main branch with the base variable values to branches.toml
+            // Add or update main branch with the allocated values to branches.toml
             self.config
                 .add_or_update_worktree(main_branch.clone(), Some(main_branch_values.clone()))?;
 
@@ -155,7 +160,17 @@ impl VibeTreeApp {
                 .project_config
                 .variables
                 .iter()
-                .map(|v| format!("{}:{}", v.name, v.default_value))
+                .map(|v| {
+                    if let Some(value) = &v.value {
+                        match value {
+                            toml::Value::Integer(num) => format!("{}:{}", v.name, num),
+                            toml::Value::String(s) => format!("{}={}", v.name, s),
+                            _ => v.name.clone(),
+                        }
+                    } else {
+                        v.name.clone()
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         );
@@ -209,7 +224,7 @@ impl VibeTreeApp {
         &mut self,
         branch_name: String,
         from_branch: Option<String>,
-        custom_values: Option<Vec<u16>>,
+        custom_values: Option<Vec<String>>,
         dry_run: bool,
         switch: bool,
     ) -> Result<()> {
@@ -277,7 +292,7 @@ impl VibeTreeApp {
                 .iter()
                 .zip(custom.iter())
             {
-                value_map.insert(variable.name.clone(), *value);
+                value_map.insert(variable.name.clone(), value.clone());
             }
             Some(value_map)
         } else {
@@ -289,25 +304,34 @@ impl VibeTreeApp {
             .config
             .add_worktree(branch_name.clone(), custom_value_map)?;
 
-        // Validate that allocated values are actually available on the system (for port variables)
-        let value_list: Vec<u16> = values.values().cloned().collect();
-        let availability = PortManager::check_ports_availability(&value_list);
-        let unavailable: Vec<u16> = availability
-            .iter()
-            .filter_map(|(&value, &available)| if !available { Some(value) } else { None })
+        // Validate that allocated values that are ports are actually available on the system
+        // Only validate values that look like user ports (>= 1024), to avoid false positives
+        // from integer values like INSTANCE_ID that happen to be < 1024
+        let port_values: Vec<u16> = values
+            .values()
+            .filter_map(|v| v.parse::<u16>().ok())
+            .filter(|&port| port >= 1024)
             .collect();
 
-        if !unavailable.is_empty() {
-            // Remove the worktree from config since value validation failed
-            self.config.remove_worktree(&branch_name)?;
-            anyhow::bail!(
-                "The following values are not available as ports: {}",
-                unavailable
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
+        if !port_values.is_empty() {
+            let availability = PortManager::check_ports_availability(&port_values);
+            let unavailable: Vec<u16> = availability
+                .iter()
+                .filter_map(|(&value, &available)| if !available { Some(value) } else { None })
+                .collect();
+
+            if !unavailable.is_empty() {
+                // Remove the worktree from config since value validation failed
+                self.config.remove_worktree(&branch_name)?;
+                anyhow::bail!(
+                    "The following ports are not available: {}",
+                    unavailable
+                        .iter()
+                        .map(|p| p.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
         }
 
         if dry_run {
@@ -850,7 +874,7 @@ mod tests {
         let (_temp_dir, mut app) = setup_test_app()?;
 
         let variables = vec!["postgres".to_string(), "redis".to_string()];
-        app.init(variables.clone(), false)?;
+        app.init(variables.clone())?;
 
         // Variables should be updated after init
         // Verify variables were configured

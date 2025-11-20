@@ -257,63 +257,38 @@ impl<'a> SyncManager<'a> {
         &mut self,
         branch_name: &str,
         sync_errors: &mut Vec<String>,
-    ) -> Result<HashMap<String, u16>> {
-        // For main branch, we need to ensure it gets the base ports
-        // First, temporarily remove any conflicting worktree that has those ports
-        let mut conflicting_worktree = None;
-        let base_ports: std::collections::HashSet<u16> = self
-            .config
-            .project_config
-            .variables
-            .iter()
-            .map(|v| v.default_value)
-            .collect();
+    ) -> Result<HashMap<String, String>> {
+        // For main branch, allocate values using the allocator
+        // Remove existing main branch config temporarily if it exists
+        let existing_main = self.config.branches_config.worktrees.remove(branch_name);
 
-        for (existing_name, existing_config) in &self.config.branches_config.worktrees {
-            if existing_name != branch_name {
-                let existing_ports: std::collections::HashSet<u16> =
-                    existing_config.values.values().cloned().collect();
-                if !base_ports.is_disjoint(&existing_ports) {
-                    conflicting_worktree = Some(existing_name.clone());
-                    break;
+        // Allocate values for main branch
+        let main_values = match self.config.project_config.allocate_values(
+            branch_name,
+            &self.config.branches_config.worktrees,
+        ) {
+            Ok(values) => values,
+            Err(e) => {
+                // Restore the existing main config if allocation failed
+                if let Some(config) = existing_main {
+                    self.config
+                        .branches_config
+                        .worktrees
+                        .insert(branch_name.to_string(), config);
                 }
+                sync_errors.push(format!("Failed to allocate values for main branch: {}", e));
+                return Ok(HashMap::new());
             }
-        }
+        };
 
-        // If there's a conflict, reassign the conflicting worktree first
-        if let Some(conflicting_name) = conflicting_worktree {
-            info!(
-                "Reassigning ports for '{}' to avoid conflict with main branch",
-                conflicting_name
-            );
-            match self
-                .config
-                .add_or_update_worktree(conflicting_name.clone(), None)
-            {
-                Ok(_) => {}
-                Err(e) => {
-                    sync_errors.push(format!(
-                        "Failed to reassign ports for '{}': {}",
-                        conflicting_name, e
-                    ));
-                }
-            }
-        }
-
-        // Now assign base ports to main branch
-        let mut main_ports = HashMap::new();
-        for variable in &self.config.project_config.variables {
-            main_ports.insert(variable.name.clone(), variable.default_value);
-        }
-
+        // Add or update main branch with allocated values
         match self
             .config
-            .add_or_update_worktree(branch_name.to_string(), Some(main_ports))
+            .add_or_update_worktree(branch_name.to_string(), Some(main_values))
         {
-            Ok(ports) => Ok(ports),
+            Ok(values) => Ok(values),
             Err(e) => {
                 sync_errors.push(format!("Failed to add main worktree: {}", e));
-                // Return empty ports to continue processing
                 Ok(HashMap::new())
             }
         }

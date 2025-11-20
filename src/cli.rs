@@ -32,8 +32,8 @@ pub enum Commands {
         #[arg(long, help = "Add worktree from specific branch")]
         from: Option<String>,
 
-        #[arg(long, help = "Specify custom port assignments", value_delimiter = ',')]
-        ports: Option<Vec<u16>>,
+        #[arg(long, help = "Specify custom value assignments", value_delimiter = ',')]
+        ports: Option<Vec<String>>,
 
         #[arg(long, help = "Show what would be added without making changes")]
         dry_run: bool,
