@@ -80,9 +80,17 @@ impl<'a> SyncManager<'a> {
                 }
 
                 // Handle main worktree (at repo root) and branch worktrees (in branches dir) differently
-                let is_main_worktree = branch_name == &self.config.project_config.main_branch;
-
                 // Use canonical paths to handle symlink differences (like /var vs /private/var on macOS)
+                let is_root_worktree = match (
+                    discovered.path.canonicalize(),
+                    self.vibetree_parent.canonicalize(),
+                ) {
+                    (Ok(discovered_canonical), Ok(root_canonical)) => {
+                        discovered_canonical == root_canonical
+                    }
+                    _ => discovered.path == *self.vibetree_parent, // fallback to original logic
+                };
+
                 let is_branch_worktree =
                     match (discovered.path.canonicalize(), branches_dir.canonicalize()) {
                         (Ok(discovered_canonical), Ok(branches_canonical)) => {
@@ -91,7 +99,14 @@ impl<'a> SyncManager<'a> {
                         _ => discovered.path.starts_with(branches_dir), // fallback to original logic
                     };
 
-                if (is_main_worktree || is_branch_worktree)
+                // Root worktree is always treated as "main" in vibetree config
+                if is_root_worktree {
+                    let config_key = &self.config.project_config.main_branch;
+                    if !self.config.branches_config.worktrees.contains_key(config_key) {
+                        plan.orphaned_worktrees
+                            .push((config_key.clone(), discovered.path.clone()));
+                    }
+                } else if is_branch_worktree
                     && !self
                         .config
                         .branches_config

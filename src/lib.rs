@@ -123,8 +123,8 @@ impl VibeTreeApp {
 
         // Add or update the main branch to branches configuration if variables are configured
         if !self.config.project_config.variables.is_empty() {
-            let main_branch = GitManager::get_current_branch(&self.vibetree_parent)
-                .unwrap_or_else(|_| self.config.project_config.main_branch.clone());
+            // Always use the configured main_branch, regardless of current git branch
+            let main_branch = self.config.project_config.main_branch.clone();
 
             // Allocate values for the main branch using the new allocator
             let existing_worktrees = HashMap::new(); // Empty since this is init
