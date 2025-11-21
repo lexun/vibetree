@@ -129,8 +129,31 @@ impl<'a> SyncManager<'a> {
             let worktree_var_names: std::collections::HashSet<_> =
                 worktree_config.values.keys().collect();
 
+            // Variable names changed (added or removed)
             if current_var_names != worktree_var_names {
                 plan.config_mismatches.push(branch_name.clone());
+                continue;
+            }
+
+            // Check if variable definitions changed by re-allocating and comparing values
+            // This catches changes like switching from bare numbers to templates
+            match self.config.project_config.allocate_values(
+                branch_name,
+                &self.config.branches_config.worktrees,
+            ) {
+                Ok(new_values) => {
+                    // Compare new values with existing values
+                    if new_values != worktree_config.values {
+                        plan.config_mismatches.push(branch_name.clone());
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to check config for '{}': {}. Will attempt to update anyway.",
+                        branch_name, e
+                    );
+                    plan.config_mismatches.push(branch_name.clone());
+                }
             }
         }
 
