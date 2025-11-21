@@ -16,17 +16,35 @@ impl GitManager {
     }
 
     pub fn find_repo_root(start_path: &Path) -> Result<PathBuf> {
-        // Search up the directory tree to find the git repository root
-        let mut current = start_path.to_path_buf();
-        loop {
-            if current.join(".git").exists() {
-                return Ok(current);
-            }
+        // Use git2's discover to properly handle both regular repos and worktrees
+        let repo = Repository::discover(start_path)
+            .context("Not inside a git repository")?;
 
-            match current.parent() {
-                Some(parent) => current = parent.to_path_buf(),
-                None => anyhow::bail!("Not inside a git repository"),
-            }
+        // For worktrees, we need to find the main repository's working directory
+        // Check if this is a worktree by looking at the commondir
+        let git_dir = repo.path();
+
+        // Read the commondir file which exists in worktrees and points to main repo's .git
+        let commondir_path = git_dir.join("commondir");
+        if commondir_path.exists() {
+            // This is a worktree - read commondir to find main repo's .git directory
+            let commondir_content = std::fs::read_to_string(&commondir_path)
+                .context("Failed to read commondir file")?;
+            let common_git_dir = git_dir.join(commondir_content.trim());
+
+            // Canonicalize to resolve relative paths like ../..
+            let canonical_common_git_dir = common_git_dir.canonicalize()
+                .context("Failed to canonicalize common git directory")?;
+
+            // The main repo's working directory is the parent of its .git directory
+            canonical_common_git_dir.parent()
+                .ok_or_else(|| anyhow::anyhow!("Cannot determine main repository root"))
+                .map(|p| p.to_path_buf())
+        } else {
+            // Not a worktree - use the regular working directory
+            repo.workdir()
+                .ok_or_else(|| anyhow::anyhow!("Repository has no working directory (bare repo?)"))
+                .map(|p| p.to_path_buf())
         }
     }
 
@@ -284,7 +302,8 @@ mod tests {
         fs::create_dir(&sub_dir)?;
 
         let found_root = GitManager::find_repo_root(&sub_dir)?;
-        assert_eq!(found_root, repo_path);
+        // Canonicalize both paths for comparison to handle symlinks (e.g., /var vs /private/var on macOS)
+        assert_eq!(found_root.canonicalize()?, repo_path.canonicalize()?);
 
         Ok(())
     }
