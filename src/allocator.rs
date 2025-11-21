@@ -22,6 +22,8 @@ impl VariableAllocator {
         existing_worktrees: &HashMap<String, WorktreeConfig>,
     ) -> Result<HashMap<String, String>> {
         let mut allocated = HashMap::new();
+        // Track ports allocated in this session to ensure uniqueness
+        let mut session_allocated_ports = HashSet::new();
 
         for variable in variables {
             // Skip if we've already allocated this variable name (first match wins)
@@ -34,7 +36,7 @@ impl VariableAllocator {
                 continue;
             }
 
-            let value = Self::allocate_variable(variable, existing_worktrees)?;
+            let value = Self::allocate_variable(variable, existing_worktrees, &mut session_allocated_ports)?;
             allocated.insert(variable.name.clone(), value);
         }
 
@@ -58,6 +60,7 @@ impl VariableAllocator {
     fn allocate_variable(
         variable: &VariableConfig,
         existing_worktrees: &HashMap<String, WorktreeConfig>,
+        session_allocated_ports: &mut HashSet<u16>,
     ) -> Result<String> {
         let value = variable.value.as_ref().ok_or_else(|| {
             anyhow::anyhow!("Variable '{}' must have a 'value' field", variable.name)
@@ -75,7 +78,7 @@ impl VariableAllocator {
 
                 match &variable.r#type {
                     Some(VariableType::Port) => {
-                        Self::allocate_port_component(num, existing_worktrees)
+                        Self::allocate_port_component(num, existing_worktrees, session_allocated_ports)
                     }
                     Some(VariableType::Int) => {
                         Ok(Self::allocate_int_component(num, existing_worktrees))
@@ -94,7 +97,7 @@ impl VariableAllocator {
                         );
 
                         if inferred_type == "port" {
-                            Self::allocate_port_component(num, existing_worktrees)
+                            Self::allocate_port_component(num, existing_worktrees, session_allocated_ports)
                         } else {
                             Ok(Self::allocate_int_component(num, existing_worktrees))
                         }
@@ -116,7 +119,7 @@ impl VariableAllocator {
                 for (idx, component) in template.components.iter().enumerate() {
                     let value = match &component.component_type {
                         ComponentType::Port(base_port) => {
-                            Self::allocate_port_component(*base_port, existing_worktrees)?
+                            Self::allocate_port_component(*base_port, existing_worktrees, session_allocated_ports)?
                         }
                         ComponentType::Int(base_int) => {
                             Self::allocate_int_component(*base_int, existing_worktrees)
@@ -142,13 +145,19 @@ impl VariableAllocator {
     fn allocate_port_component(
         base_port: u16,
         existing_worktrees: &HashMap<String, WorktreeConfig>,
+        session_allocated_ports: &mut HashSet<u16>,
     ) -> Result<String> {
         let used_ports = Self::get_all_used_ports(existing_worktrees);
         let mut port = base_port;
 
         // Find next available port that's not used and is actually available
         loop {
-            if !used_ports.contains(&port) && PortManager::check_port_availability(port) {
+            // Check if port is already used in existing worktrees, in this session, or on the system
+            if !used_ports.contains(&port)
+                && !session_allocated_ports.contains(&port)
+                && PortManager::check_port_availability(port) {
+                // Mark this port as allocated in the current session
+                session_allocated_ports.insert(port);
                 return Ok(port.to_string());
             }
             port = port
@@ -427,6 +436,53 @@ mod tests {
             Some(&"3".to_string()),
             "Should allocate next available integer without collision"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_port_uniqueness_within_worktree() -> Result<()> {
+        // Test that multiple port-type variables get unique ports within the same worktree
+        let variables = vec![
+            VariableConfig {
+                name: "PORT_A".to_string(),
+                value: Some(toml::Value::Integer(54000)),
+                r#type: Some(VariableType::Port),
+                branch: None,
+            },
+            VariableConfig {
+                name: "PORT_B".to_string(),
+                value: Some(toml::Value::Integer(54001)),
+                r#type: Some(VariableType::Port),
+                branch: None,
+            },
+        ];
+
+        // Create first worktree
+        let existing = HashMap::new();
+        let allocated1 = VariableAllocator::allocate_values(&variables, "main", &existing)?;
+
+        let port_a1: u16 = allocated1.get("PORT_A").unwrap().parse()?;
+        let port_b1: u16 = allocated1.get("PORT_B").unwrap().parse()?;
+        assert_eq!(port_a1, 54000);
+        assert_eq!(port_b1, 54001);
+
+        // Create second worktree - should get unique ports
+        let mut existing2 = HashMap::new();
+        let mut values1 = HashMap::new();
+        values1.insert("PORT_A".to_string(), port_a1.to_string());
+        values1.insert("PORT_B".to_string(), port_b1.to_string());
+        existing2.insert("main".to_string(), WorktreeConfig { values: values1 });
+
+        let allocated2 = VariableAllocator::allocate_values(&variables, "feature", &existing2)?;
+
+        let port_a2: u16 = allocated2.get("PORT_A").unwrap().parse()?;
+        let port_b2: u16 = allocated2.get("PORT_B").unwrap().parse()?;
+
+        // Both ports should be unique
+        assert_ne!(port_a2, port_b2, "PORT_A and PORT_B should have different values");
+        assert_eq!(port_a2, 54002, "PORT_A should be 54002");
+        assert_eq!(port_b2, 54003, "PORT_B should be 54003");
 
         Ok(())
     }
