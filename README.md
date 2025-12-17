@@ -14,11 +14,30 @@ Vibetree manages Git worktrees while automatically allocating distinct values (p
 
 🌱 **Early Development** - Usable but APIs may change. Feedback welcome!
 
+## Installation
+
+### With Nix
+
+Requires [Nix](https://github.com/DeterminateSystems/nix-installer).
+
+```bash
+nix profile add github:lexun/vibetree
+```
+
+### With Cargo
+
+Requires [Cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html).
+
+```bash
+cargo install --git https://github.com/lexun/vibetree
+```
+
 ## Configuration
 
 Vibetree generates a `.vibetree/env` file for each worktree with unique values based on your `vibetree.toml` config. You can source it directly, symlink it to `.env` for docker-compose, or use direnv to load it automatically.
 
 Variables can be:
+
 - **Static** - same value for all worktrees
 - **Auto-allocated ports** - finds next available port from a base value
 - **Auto-incrementing integers** - simple counter-based allocation
@@ -60,10 +79,12 @@ type = "port"
 ```
 
 Each worktree gets isolated Docker resources:
+
 - main: `COMPOSE_PROJECT_NAME=myapp_1`, `POSTGRES_VOLUME=pgdata_1`
 - feature-1: `COMPOSE_PROJECT_NAME=myapp_2`, `POSTGRES_VOLUME=pgdata_2`
 
 Then in your `docker-compose.yml`:
+
 ```yaml
 volumes:
   ${POSTGRES_VOLUME}:
@@ -82,6 +103,7 @@ services:
 ### Commands
 
 #### Initialize
+
 ```bash
 # Initialize vibetree in a repository
 vibetree init
@@ -93,6 +115,7 @@ vibetree init --variables POSTGRES_PORT,REDIS_PORT,API_PORT
 This creates a `vibetree.toml` config file. Edit it to define your variables.
 
 #### Add Worktrees
+
 ```bash
 # Add a new worktree (auto-allocates values)
 vibetree add feature-branch
@@ -111,6 +134,7 @@ vibetree add feature-branch --dry-run
 ```
 
 #### List Worktrees
+
 ```bash
 # List all worktrees with their allocated values
 vibetree list
@@ -122,6 +146,7 @@ vibetree list --format yaml
 ```
 
 #### Remove Worktrees
+
 ```bash
 # Remove a worktree
 vibetree remove feature-branch
@@ -134,12 +159,14 @@ vibetree remove feature-branch --keep-branch
 ```
 
 #### Switch Between Worktrees
+
 ```bash
 # Switch to an existing worktree directory
 vibetree switch feature-branch
 ```
 
 #### Repair Configuration
+
 ```bash
 # Repair configuration and discover orphaned worktrees
 vibetree repair
@@ -149,6 +176,7 @@ vibetree repair --dry-run
 ```
 
 #### Global Options
+
 ```bash
 # Enable verbose output for any command
 vibetree --verbose <command>
