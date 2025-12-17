@@ -1,20 +1,81 @@
 # Vibetree
 
-A work tree management tool that assigns unique ports to each work tree's dependent services.
+A worktree management tool that assigns unique environment values to each worktree's dependent services.
 
 ## Overview
 
-Vibetree manages Git work trees while automatically allocating distinct ports for each work tree's services. This enables:
+Vibetree manages Git worktrees while automatically allocating distinct values (ports, IPs, instance IDs, etc.) for each worktree's services. This enables:
 
-- Isolated development environments per work tree
+- Isolated development environments per worktree
 - Parallel test execution without port conflicts
 - Multiple AI agents working on different branches simultaneously
 
 ## Status
 
-⚠️ **Disclaimer**: This tool has been primarily developed by AI, with some human oversight.
+🌱 **Early Development** - Usable but APIs may change. Feedback welcome!
 
-⚠️ **Work in Progress** - Not ready for production use.
+## Configuration
+
+Vibetree generates a `.vibetree/env` file for each worktree with unique values based on your `vibetree.toml` config. You can source it directly, symlink it to `.env` for docker-compose, or use direnv to load it automatically.
+
+Variables can be:
+- **Static** - same value for all worktrees
+- **Auto-allocated ports** - finds next available port from a base value
+- **Auto-incrementing integers** - simple counter-based allocation
+- **String templates** - with embedded `{port:N}` or `{int:N}` components
+
+### Example: Unique Ports per Worktree
+
+```toml
+[[variables]]
+name = "POSTGRES_PORT"
+value = 5432
+type = "port"
+
+[[variables]]
+name = "REDIS_PORT"
+value = 6379
+type = "port"
+```
+
+Each worktree gets the next available port starting from the base value. On `main`, `POSTGRES_PORT` might be 5432; `feature-1` gets 5433, etc.
+
+### Example: Unique Container Names and Volumes
+
+Use string templates to generate unique Docker resource names per worktree:
+
+```toml
+[[variables]]
+name = "COMPOSE_PROJECT_NAME"
+value = "myapp_{int:1}"  # myapp_1, myapp_2, ...
+
+[[variables]]
+name = "POSTGRES_VOLUME"
+value = "pgdata_{int:1}"
+
+[[variables]]
+name = "POSTGRES_PORT"
+value = 5432
+type = "port"
+```
+
+Each worktree gets isolated Docker resources:
+- main: `COMPOSE_PROJECT_NAME=myapp_1`, `POSTGRES_VOLUME=pgdata_1`
+- feature-1: `COMPOSE_PROJECT_NAME=myapp_2`, `POSTGRES_VOLUME=pgdata_2`
+
+Then in your `docker-compose.yml`:
+```yaml
+volumes:
+  ${POSTGRES_VOLUME}:
+
+services:
+  db:
+    image: postgres
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - ${POSTGRES_VOLUME}:/var/lib/postgresql/data
+```
 
 ## Usage
 
@@ -23,19 +84,24 @@ Vibetree manages Git work trees while automatically allocating distinct ports fo
 #### Initialize
 ```bash
 # Initialize vibetree in a repository
-vibetree init --variables web,api,db
+vibetree init
+
+# Initialize with predefined service variables
+vibetree init --variables POSTGRES_PORT,REDIS_PORT,API_PORT
 ```
+
+This creates a `vibetree.toml` config file. Edit it to define your variables.
 
 #### Add Worktrees
 ```bash
-# Add a new worktree
+# Add a new worktree (auto-allocates values)
 vibetree add feature-branch
 
 # Add worktree from a specific branch
 vibetree add feature-branch --from main
 
-# Add worktree with custom port assignments
-vibetree add feature-branch --ports 3000,8080,5432
+# Add worktree with custom value assignments (positional, matches variable order)
+vibetree add feature-branch --ports 5440,6380
 
 # Add worktree and switch to it immediately
 vibetree add feature-branch --switch
@@ -46,7 +112,7 @@ vibetree add feature-branch --dry-run
 
 #### List Worktrees
 ```bash
-# List all worktrees with their port allocations
+# List all worktrees with their allocated values
 vibetree list
 
 # List in different formats
