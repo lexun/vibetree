@@ -132,7 +132,13 @@ impl<'a> SyncManager<'a> {
         }
 
         // Check for config mismatches (variable changes)
+        // Skip worktrees that are already marked as missing
         for (branch_name, worktree_config) in &self.config.branches_config.worktrees {
+            // Skip worktrees that are already marked as missing
+            if plan.missing_worktrees.contains(branch_name) {
+                continue;
+            }
+
             // Check if all configured variables exist in current project config
             let current_var_names: std::collections::HashSet<_> = self
                 .config

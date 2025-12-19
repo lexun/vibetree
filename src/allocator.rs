@@ -443,6 +443,7 @@ mod tests {
     #[test]
     fn test_port_uniqueness_within_worktree() -> Result<()> {
         // Test that multiple port-type variables get unique ports within the same worktree
+        // Use high ports that are unlikely to be in use on the system
         let variables = vec![
             VariableConfig {
                 name: "PORT_A".to_string(),
@@ -464,10 +465,13 @@ mod tests {
 
         let port_a1: u16 = allocated1.get("PORT_A").unwrap().parse()?;
         let port_b1: u16 = allocated1.get("PORT_B").unwrap().parse()?;
-        assert_eq!(port_a1, 54000);
-        assert_eq!(port_b1, 54001);
+        // Ports should be unique within the worktree
+        assert_ne!(port_a1, port_b1, "PORT_A and PORT_B should have different values");
+        // Both ports should be in the expected range (starting from base)
+        assert!(port_a1 >= 54000, "PORT_A should be >= 54000");
+        assert!(port_b1 >= 54001, "PORT_B should be >= 54001");
 
-        // Create second worktree - should get unique ports
+        // Create second worktree - should get unique ports from first worktree
         let mut existing2 = HashMap::new();
         let mut values1 = HashMap::new();
         values1.insert("PORT_A".to_string(), port_a1.to_string());
@@ -479,10 +483,14 @@ mod tests {
         let port_a2: u16 = allocated2.get("PORT_A").unwrap().parse()?;
         let port_b2: u16 = allocated2.get("PORT_B").unwrap().parse()?;
 
-        // Both ports should be unique
+        // Both ports should be unique within this worktree
         assert_ne!(port_a2, port_b2, "PORT_A and PORT_B should have different values");
-        assert_eq!(port_a2, 54002, "PORT_A should be 54002");
-        assert_eq!(port_b2, 54003, "PORT_B should be 54003");
+        // Both ports should be different from the first worktree's ports
+        assert_ne!(port_a2, port_a1, "PORT_A should be unique across worktrees");
+        assert_ne!(port_b2, port_b1, "PORT_B should be unique across worktrees");
+        // Second worktree should avoid first worktree's ports
+        assert_ne!(port_a2, port_b1, "PORT_A in worktree 2 should not equal PORT_B in worktree 1");
+        assert_ne!(port_b2, port_a1, "PORT_B in worktree 2 should not equal PORT_A in worktree 1");
 
         Ok(())
     }

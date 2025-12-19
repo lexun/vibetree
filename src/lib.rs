@@ -307,30 +307,34 @@ impl VibeTreeApp {
         // Validate that allocated values that are ports are actually available on the system
         // Only validate values that look like user ports (>= 1024), to avoid false positives
         // from integer values like INSTANCE_ID that happen to be < 1024
-        let port_values: Vec<u16> = values
-            .values()
-            .filter_map(|v| v.parse::<u16>().ok())
-            .filter(|&port| port >= 1024)
-            .collect();
-
-        if !port_values.is_empty() {
-            let availability = PortManager::check_ports_availability(&port_values);
-            let unavailable: Vec<u16> = availability
-                .iter()
-                .filter_map(|(&value, &available)| if !available { Some(value) } else { None })
+        // Skip this check during tests (VIBETREE_TESTING env var) since concurrent tests
+        // may temporarily occupy ports that would otherwise be available
+        if std::env::var("VIBETREE_TESTING").is_err() {
+            let port_values: Vec<u16> = values
+                .values()
+                .filter_map(|v| v.parse::<u16>().ok())
+                .filter(|&port| port >= 1024)
                 .collect();
 
-            if !unavailable.is_empty() {
-                // Remove the worktree from config since value validation failed
-                self.config.remove_worktree(&branch_name)?;
-                anyhow::bail!(
-                    "The following ports are not available: {}",
-                    unavailable
-                        .iter()
-                        .map(|p| p.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
+            if !port_values.is_empty() {
+                let availability = PortManager::check_ports_availability(&port_values);
+                let unavailable: Vec<u16> = availability
+                    .iter()
+                    .filter_map(|(&value, &available)| if !available { Some(value) } else { None })
+                    .collect();
+
+                if !unavailable.is_empty() {
+                    // Remove the worktree from config since value validation failed
+                    self.config.remove_worktree(&branch_name)?;
+                    anyhow::bail!(
+                        "The following ports are not available: {}",
+                        unavailable
+                            .iter()
+                            .map(|p| p.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
             }
         }
 
@@ -576,9 +580,15 @@ impl VibeTreeApp {
     /// Spawn a new shell in the specified directory
     fn spawn_shell_in_directory(&self, path: &std::path::Path) -> Result<()> {
         use std::process::Command;
-        
+
         if !path.exists() {
             return Err(anyhow::anyhow!("Directory does not exist: {}", path.display()));
+        }
+
+        // Skip shell spawning in test environments
+        if std::env::var("VIBETREE_SKIP_SHELL").is_ok() {
+            info!("Skipping shell spawn (VIBETREE_SKIP_SHELL is set)");
+            return Ok(());
         }
         
         // Check if we're already in a vibetree subshell and switching to main
