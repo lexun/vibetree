@@ -49,14 +49,16 @@ impl<'a> DisplayManager<'a> {
             return Ok(());
         }
 
-        println!("{:<20} {:<15} {:<50}", "Name", "Status", "Values");
-        println!("{}", "-".repeat(85));
+        println!("{:<20} {:<10} {:<15}", "Name", "Status", "Values");
+        println!("{}", "-".repeat(45));
 
         for data in worktree_data {
-            println!(
-                "{:<20} {:<15} {:<50}",
-                data.name, data.status, data.values_display
-            );
+            let values_summary = if data.values.is_empty() {
+                "none".to_string()
+            } else {
+                format!("{} configured", data.values.len())
+            };
+            println!("{:<20} {:<10} {:<15}", data.name, data.status, values_summary);
         }
 
         Ok(())
