@@ -1,4 +1,47 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
+use std::ffi::OsStr;
+
+/// Supported shells for completion generation
+#[derive(Clone, Debug, ValueEnum)]
+pub enum CompletionShell {
+    Bash,
+    Elvish,
+    Fish,
+    Powershell,
+    Zsh,
+    /// Generate carapace spec (YAML)
+    Carapace,
+    /// Auto-detect and install completions
+    Install,
+}
+
+/// Custom completer that returns existing worktree names
+fn complete_worktree_names(current: &OsStr) -> Vec<CompletionCandidate> {
+    let current_str = current.to_str().unwrap_or("");
+
+    // Use the current binary to ensure we're calling the same version
+    let exe = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_) => return vec![],
+    };
+
+    let output = std::process::Command::new(exe)
+        .args(["list", "--format", "names"])
+        .output();
+
+    match output {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            stdout
+                .lines()
+                .filter(|name| name.starts_with(current_str))
+                .map(|name| CompletionCandidate::new(name))
+                .collect()
+        }
+        _ => vec![],
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "vibetree")]
@@ -44,7 +87,7 @@ pub enum Commands {
 
     #[command(about = "Remove git worktree and clean up port allocations")]
     Remove {
-        #[arg(help = "Name of the branch/worktree to remove")]
+        #[arg(help = "Name of the branch/worktree to remove", add = ArgValueCompleter::new(complete_worktree_names))]
         branch_name: String,
 
         #[arg(
@@ -72,8 +115,14 @@ pub enum Commands {
 
     #[command(about = "Switch to an existing worktree directory")]
     Switch {
-        #[arg(help = "Name of the branch/worktree to switch to")]
+        #[arg(help = "Name of the branch/worktree to switch to", add = ArgValueCompleter::new(complete_worktree_names))]
         branch_name: String,
+    },
+
+    #[command(about = "Generate shell completions", hide = true)]
+    Completions {
+        #[arg(help = "Shell to generate completions for")]
+        shell: CompletionShell,
     },
 }
 
@@ -82,4 +131,6 @@ pub enum OutputFormat {
     Table,
     Json,
     Yaml,
+    /// Output just branch names, one per line (useful for shell completions)
+    Names,
 }

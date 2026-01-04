@@ -38,6 +38,7 @@ impl<'a> DisplayManager<'a> {
             OutputFormat::Table => self.list_worktrees_table(),
             OutputFormat::Json => self.list_worktrees_json(),
             OutputFormat::Yaml => self.list_worktrees_yaml(),
+            OutputFormat::Names => self.list_worktrees_names(),
         }
     }
 
@@ -89,6 +90,13 @@ impl<'a> DisplayManager<'a> {
         let yaml =
             serde_yaml::to_string(&output).context("Failed to serialize worktree data to YAML")?;
         print!("{}", yaml);
+        Ok(())
+    }
+
+    fn list_worktrees_names(&self) -> Result<()> {
+        for name in self.config.branches_config.worktrees.keys() {
+            println!("{}", name);
+        }
         Ok(())
     }
 

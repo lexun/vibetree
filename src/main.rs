@@ -1,9 +1,13 @@
 use anyhow::Context;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap_complete::env::CompleteEnv;
 use log::error;
-use vibetree::{Cli, Commands, VibeTreeApp};
+use vibetree::{generate_completions, Cli, Commands, VibeTreeApp};
 
 fn main() {
+    // Handle dynamic shell completions (if triggered by shell completion request)
+    CompleteEnv::with_factory(Cli::command).complete();
+
     env_logger::init();
 
     let cli = Cli::parse();
@@ -149,6 +153,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             }
         }
 
+        Commands::Completions { shell } => {
+            generate_completions(shell);
+        }
     }
 
     Ok(())

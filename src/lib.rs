@@ -8,6 +8,7 @@
 
 pub mod allocator;
 pub mod cli;
+pub mod completions;
 pub mod config;
 pub mod display;
 pub mod env;
@@ -21,7 +22,8 @@ pub mod validation;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Re-export public types for external use
-pub use cli::{Cli, Commands, OutputFormat};
+pub use cli::{Cli, Commands, CompletionShell, OutputFormat};
+pub use completions::generate_completions;
 pub use config::{VariableConfig, VibeTreeConfig, WorktreeConfig};
 pub use display::WorktreeDisplayData;
 pub use env::EnvFileGenerator;

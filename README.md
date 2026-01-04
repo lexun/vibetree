@@ -188,6 +188,14 @@ vibetree <command> --help
 vibetree --version
 ```
 
+### Shell Completions
+
+```bash
+vibetree completions install
+```
+
+This auto-detects your shell environment and installs completions appropriately.
+
 ## License
 
 Licensed under either of <a href="LICENSE-APACHE">Apache License, Version
