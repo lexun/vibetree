@@ -1,6 +1,7 @@
 .claude/settings.local.json
 .devenv
 .direnv
+.pre-commit-config.yaml
 .local
 .vibetree/
 /branches/
