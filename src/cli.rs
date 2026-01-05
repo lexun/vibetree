@@ -61,13 +61,13 @@ pub enum Commands {
     Init {
         #[arg(
             long,
-            help = "Specify which variables need port isolation",
+            help = "Specify variables to configure",
             value_delimiter = ','
         )]
         variables: Vec<String>,
     },
 
-    #[command(about = "Add new git worktree with isolated port configuration")]
+    #[command(about = "Add new worktree with isolated environment")]
     Add {
         #[arg(help = "Name of the branch/worktree to add")]
         branch_name: String,
@@ -85,7 +85,7 @@ pub enum Commands {
         switch: bool,
     },
 
-    #[command(about = "Remove git worktree and clean up port allocations")]
+    #[command(about = "Remove worktree and release allocations")]
     Remove {
         #[arg(help = "Name of the branch/worktree to remove", add = ArgValueCompleter::new(complete_worktree_names))]
         branch_name: String,
@@ -93,7 +93,7 @@ pub enum Commands {
         #[arg(
             short,
             long,
-            help = "Remove even if processes are running on allocated ports"
+            help = "Force removal even with active processes"
         )]
         force: bool,
 
@@ -101,7 +101,7 @@ pub enum Commands {
         keep_branch: bool,
     },
 
-    #[command(about = "List all worktrees with their port allocations")]
+    #[command(about = "List worktrees with their allocations")]
     List {
         #[arg(short, long, help = "Output format")]
         format: Option<OutputFormat>,
