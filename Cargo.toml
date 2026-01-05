@@ -1,6 +1,6 @@
 [package]
 name = "vibetree"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["Luke Barbuto <luke.barbuto@gmail.com>"]
 description = "Worktree management with isolated environment values"
