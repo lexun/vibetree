@@ -2,6 +2,13 @@
 name = "vibetree"
 version = "0.2.1"
 edition = "2024"
+authors = ["Luke Barbuto <luke.barbuto@gmail.com>"]
+description = "Worktree management with isolated environment values"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/lexun/vibetree"
+keywords = ["git", "worktree", "development", "environment"]
+categories = ["development-tools", "command-line-utilities"]
+exclude = ["flake.*", "justfile", ".envrc", "CLAUDE.md", "AGENTS.md", "vibetree.toml"]
 
 [lib]
 name = "vibetree"
