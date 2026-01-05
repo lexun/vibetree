@@ -91,6 +91,7 @@
               {
                 languages.rust.enable = true;
                 packages = with pkgs; [
+                  cargo-edit
                   just
                 ];
                 git-hooks.hooks.single-line-commit = {
