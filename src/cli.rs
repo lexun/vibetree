@@ -124,6 +124,24 @@ pub enum Commands {
         #[arg(help = "Shell to generate completions for")]
         shell: CompletionShell,
     },
+
+    #[command(about = "Merge a worktree branch into target branch")]
+    Merge {
+        #[arg(help = "Name of the branch/worktree to merge", add = ArgValueCompleter::new(complete_worktree_names))]
+        branch_name: String,
+
+        #[arg(long, help = "Target branch to merge into (default: main)")]
+        into: Option<String>,
+
+        #[arg(long, help = "Squash commits into single commit", conflicts_with = "rebase")]
+        squash: bool,
+
+        #[arg(long, help = "Rebase onto target before fast-forward merge", conflicts_with = "squash")]
+        rebase: bool,
+
+        #[arg(long, help = "Remove worktree after successful merge")]
+        remove: bool,
+    },
 }
 
 #[derive(Clone, Debug, ValueEnum)]

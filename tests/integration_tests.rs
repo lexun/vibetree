@@ -865,3 +865,357 @@ fn test_add_worktree_with_switch_flag() -> Result<()> {
 
     Ok(())
 }
+
+// ============================================================================
+// Merge command tests
+// ============================================================================
+
+#[test]
+fn test_merge_happy_path() -> Result<()> {
+    let setup = IntegrationTestSetup::new()?;
+    let mut app = setup.create_app()?;
+
+    // Initialize and create worktree
+    app.init(vec![setup.var("postgres", 0)])?;
+
+    // Commit vibetree config (required before merge checks)
+    setup.run_git_cmd(&["add", "vibetree.toml", ".gitignore"])?;
+    setup.run_git_cmd(&["commit", "-m", "Add vibetree config"])?;
+
+    app.add_worktree("feature-branch".to_string(), None, None, false, false)?;
+
+    // Make a commit in the feature branch
+    let worktree_path = setup
+        .repo_path
+        .join(".vibetree")
+        .join("branches")
+        .join("feature-branch");
+    fs::write(worktree_path.join("feature.txt"), "new feature")?;
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&worktree_path)
+        .output()?;
+    Command::new("git")
+        .args(["commit", "-m", "Add feature"])
+        .current_dir(&worktree_path)
+        .output()?;
+
+    // Merge the feature branch (without --remove)
+    let result = app.merge_worktree(
+        "feature-branch".to_string(),
+        None,   // into main
+        false,  // not squash
+        false,  // not rebase
+        false,  // don't remove after
+    );
+    assert!(result.is_ok());
+
+    // Verify the merge happened (feature.txt should now be in main)
+    assert!(setup.repo_path.join("feature.txt").exists());
+
+    // Verify worktree still exists (since we didn't use --remove)
+    assert!(setup.worktree_exists("feature-branch"));
+
+    Ok(())
+}
+
+#[test]
+fn test_merge_with_remove_flag() -> Result<()> {
+    let setup = IntegrationTestSetup::new()?;
+    let mut app = setup.create_app()?;
+
+    // Initialize and create worktree
+    app.init(vec![setup.var("postgres", 0)])?;
+
+    // Commit vibetree config (required before merge checks)
+    setup.run_git_cmd(&["add", "vibetree.toml", ".gitignore"])?;
+    setup.run_git_cmd(&["commit", "-m", "Add vibetree config"])?;
+
+    app.add_worktree("temp-feature".to_string(), None, None, false, false)?;
+
+    // Make a commit in the feature branch
+    let worktree_path = setup
+        .repo_path
+        .join(".vibetree")
+        .join("branches")
+        .join("temp-feature");
+    fs::write(worktree_path.join("temp.txt"), "temp feature")?;
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&worktree_path)
+        .output()?;
+    Command::new("git")
+        .args(["commit", "-m", "Add temp feature"])
+        .current_dir(&worktree_path)
+        .output()?;
+
+    // Merge with --remove flag
+    let result = app.merge_worktree(
+        "temp-feature".to_string(),
+        None,  // into main
+        false, // not squash
+        false, // not rebase
+        true,  // remove after
+    );
+    assert!(result.is_ok());
+
+    // Verify the merge happened
+    assert!(setup.repo_path.join("temp.txt").exists());
+
+    // Verify worktree was removed
+    assert!(!setup.worktree_exists("temp-feature"));
+    assert!(!app.get_worktrees().contains_key("temp-feature"));
+
+    Ok(())
+}
+
+#[test]
+fn test_merge_already_merged() -> Result<()> {
+    let setup = IntegrationTestSetup::new()?;
+    let mut app = setup.create_app()?;
+
+    // Initialize and create worktree
+    app.init(vec![setup.var("postgres", 0)])?;
+
+    // Commit vibetree config (required before merge checks)
+    setup.run_git_cmd(&["add", "vibetree.toml", ".gitignore"])?;
+    setup.run_git_cmd(&["commit", "-m", "Add vibetree config"])?;
+
+    app.add_worktree("already-merged".to_string(), None, None, false, false)?;
+
+    // Make a commit in the feature branch
+    let worktree_path = setup
+        .repo_path
+        .join(".vibetree")
+        .join("branches")
+        .join("already-merged");
+    fs::write(worktree_path.join("merged.txt"), "merged content")?;
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&worktree_path)
+        .output()?;
+    Command::new("git")
+        .args(["commit", "-m", "Add merged content"])
+        .current_dir(&worktree_path)
+        .output()?;
+
+    // First merge
+    app.merge_worktree(
+        "already-merged".to_string(),
+        None,
+        false,
+        false,
+        false,
+    )?;
+
+    // Second merge should detect already-merged and succeed
+    let result = app.merge_worktree(
+        "already-merged".to_string(),
+        None,
+        false,
+        false,
+        false,
+    );
+    assert!(result.is_ok());
+
+    Ok(())
+}
+
+#[test]
+fn test_merge_rebase_happy_path() -> Result<()> {
+    let setup = IntegrationTestSetup::new()?;
+    let mut app = setup.create_app()?;
+
+    // Initialize and create worktree
+    app.init(vec![setup.var("postgres", 0)])?;
+
+    // Commit vibetree config (required before merge checks)
+    setup.run_git_cmd(&["add", "vibetree.toml", ".gitignore"])?;
+    setup.run_git_cmd(&["commit", "-m", "Add vibetree config"])?;
+
+    app.add_worktree("rebase-feature".to_string(), None, None, false, false)?;
+
+    // Make a commit in the feature branch
+    let worktree_path = setup
+        .repo_path
+        .join(".vibetree")
+        .join("branches")
+        .join("rebase-feature");
+    fs::write(worktree_path.join("rebase.txt"), "rebase content")?;
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&worktree_path)
+        .output()?;
+    Command::new("git")
+        .args(["commit", "-m", "Add rebase content"])
+        .current_dir(&worktree_path)
+        .output()?;
+
+    // Merge with rebase
+    let result = app.merge_worktree(
+        "rebase-feature".to_string(),
+        None,  // into main
+        false, // not squash
+        true,  // rebase
+        false, // don't remove
+    );
+    assert!(result.is_ok(), "Rebase merge failed: {:?}", result);
+
+    // Verify the merge happened
+    assert!(setup.repo_path.join("rebase.txt").exists());
+
+    Ok(())
+}
+
+#[test]
+fn test_merge_cannot_merge_main() -> Result<()> {
+    let setup = IntegrationTestSetup::new()?;
+    let mut app = setup.create_app()?;
+
+    app.init(vec![setup.var("postgres", 0)])?;
+
+    // Try to merge main into itself - should fail
+    let result = app.merge_worktree(
+        "main".to_string(),
+        None,  // defaults to main
+        false,
+        false,
+        false,
+    );
+    assert!(result.is_err());
+    // When merging main into main (default target), we get "into itself" error
+    assert!(result.unwrap_err().to_string().contains("into itself"));
+
+    // Also test merging main into a different target - should fail with "main branch" error
+    let mut app2 = setup.create_app()?;
+    let result2 = app2.merge_worktree(
+        "main".to_string(),
+        Some("nonexistent".to_string()),  // different target
+        false,
+        false,
+        false,
+    );
+    assert!(result2.is_err());
+    // This should fail because we can't merge the main branch
+    assert!(result2.unwrap_err().to_string().contains("Cannot merge the main branch"));
+
+    Ok(())
+}
+
+#[test]
+fn test_merge_nonexistent_branch() -> Result<()> {
+    let setup = IntegrationTestSetup::new()?;
+    let mut app = setup.create_app()?;
+
+    app.init(vec![setup.var("postgres", 0)])?;
+
+    // Try to merge non-existent branch - should fail
+    let result = app.merge_worktree(
+        "nonexistent".to_string(),
+        None,
+        false,
+        false,
+        false,
+    );
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("does not exist"));
+
+    Ok(())
+}
+
+#[test]
+fn test_merge_detects_uncommitted_changes() -> Result<()> {
+    let setup = IntegrationTestSetup::new()?;
+    let mut app = setup.create_app()?;
+
+    // Initialize and create worktree
+    app.init(vec![setup.var("postgres", 0)])?;
+
+    // Commit vibetree config first (so main is clean)
+    setup.run_git_cmd(&["add", "vibetree.toml", ".gitignore"])?;
+    setup.run_git_cmd(&["commit", "-m", "Add vibetree config"])?;
+
+    app.add_worktree("dirty-feature".to_string(), None, None, false, false)?;
+
+    // Make a committed change in the feature branch first (so there's something to merge)
+    let worktree_path = setup
+        .repo_path
+        .join(".vibetree")
+        .join("branches")
+        .join("dirty-feature");
+    fs::write(worktree_path.join("committed.txt"), "committed change")?;
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&worktree_path)
+        .output()?;
+    Command::new("git")
+        .args(["commit", "-m", "Add committed file"])
+        .current_dir(&worktree_path)
+        .output()?;
+
+    // Now add uncommitted changes
+    fs::write(worktree_path.join("uncommitted.txt"), "uncommitted")?;
+
+    // Try to merge - should fail due to uncommitted changes
+    let result = app.merge_worktree(
+        "dirty-feature".to_string(),
+        None,
+        false,
+        false,
+        false,
+    );
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("Uncommitted changes"));
+
+    Ok(())
+}
+
+#[test]
+fn test_merge_detects_conflicts() -> Result<()> {
+    let setup = IntegrationTestSetup::new()?;
+    let mut app = setup.create_app()?;
+
+    // Initialize and create worktree
+    app.init(vec![setup.var("postgres", 0)])?;
+    app.add_worktree("conflict-feature".to_string(), None, None, false, false)?;
+
+    // Create conflicting changes in main
+    fs::write(setup.repo_path.join("conflict.txt"), "main version")?;
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&setup.repo_path)
+        .output()?;
+    Command::new("git")
+        .args(["commit", "-m", "Main conflict"])
+        .current_dir(&setup.repo_path)
+        .output()?;
+
+    // Create conflicting changes in feature branch
+    let worktree_path = setup
+        .repo_path
+        .join(".vibetree")
+        .join("branches")
+        .join("conflict-feature");
+    fs::write(worktree_path.join("conflict.txt"), "feature version")?;
+    Command::new("git")
+        .args(["add", "."])
+        .current_dir(&worktree_path)
+        .output()?;
+    Command::new("git")
+        .args(["commit", "-m", "Feature conflict"])
+        .current_dir(&worktree_path)
+        .output()?;
+
+    // Try to merge - should fail due to conflicts
+    let result = app.merge_worktree(
+        "conflict-feature".to_string(),
+        None,
+        false,
+        false,
+        false,
+    );
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("conflicts"));
+
+    Ok(())
+}

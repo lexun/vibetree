@@ -156,6 +156,32 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::Completions { shell } => {
             generate_completions(shell);
         }
+
+        Commands::Merge {
+            branch_name,
+            into,
+            squash,
+            rebase,
+            remove,
+        } => {
+            // Try to load existing config
+            match VibeTreeApp::load_existing() {
+                Ok(mut app) => {
+                    app.merge_worktree(branch_name, into, squash, rebase, remove)?;
+                }
+                Err(_) => {
+                    // No config exists - try to create temporary app for merge
+                    let mut app = VibeTreeApp::new()?;
+                    app.merge_worktree(branch_name, into, squash, rebase, remove)?;
+                    // Remove the config file created by VibeTreeApp::new() since we're in discovery mode
+                    let config_path = std::env::current_dir()?.join("vibetree.toml");
+                    if config_path.exists() {
+                        std::fs::remove_file(&config_path)
+                            .context("Failed to remove created config file")?;
+                    }
+                }
+            }
+        }
     }
 
     Ok(())

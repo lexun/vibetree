@@ -529,6 +529,248 @@ impl VibeTreeApp {
         sync_manager.sync(dry_run)
     }
 
+    /// Merge a worktree branch into target branch
+    pub fn merge_worktree(
+        &mut self,
+        branch_name: String,
+        into: Option<String>,
+        squash: bool,
+        rebase: bool,
+        remove_after: bool,
+    ) -> Result<()> {
+        info!("Merging worktree: {}", branch_name);
+
+        // Determine target branch
+        let target_branch = into.unwrap_or_else(|| self.config.project_config.main_branch.clone());
+
+        // Validate: can't merge main into itself
+        if branch_name == target_branch {
+            anyhow::bail!("Cannot merge '{}' into itself", branch_name);
+        }
+
+        // Validate: can't merge the main branch
+        if branch_name == self.config.project_config.main_branch {
+            anyhow::bail!(
+                "Cannot merge the main branch '{}'. Use a feature branch instead.",
+                branch_name
+            );
+        }
+
+        // Find git repository
+        let repo_path = GitManager::find_repo_root(&self.vibetree_parent)
+            .context("Not inside a git repository")?;
+
+        // Check if target branch exists
+        if !GitManager::branch_exists(&repo_path, &target_branch)? {
+            anyhow::bail!("Target branch '{}' does not exist", target_branch);
+        }
+
+        // Check if source branch exists
+        if !GitManager::branch_exists(&repo_path, &branch_name)? {
+            anyhow::bail!(
+                "Branch '{}' does not exist in git. Run 'vibetree repair' to sync configuration.",
+                branch_name
+            );
+        }
+
+        // Check if already merged
+        if GitManager::is_ancestor(&repo_path, &branch_name, &target_branch)? {
+            info!(
+                "Branch '{}' is already merged into '{}'",
+                branch_name, target_branch
+            );
+
+            // Handle cleanup
+            if remove_after {
+                return self.handle_post_merge_cleanup(&branch_name);
+            } else {
+                info!("To clean up the worktree, run:");
+                info!("  vibetree remove {}", branch_name);
+                return Ok(());
+            }
+        }
+
+        // Get worktree path for checking uncommitted changes
+        let worktree_path = self
+            .vibetree_parent
+            .join(&self.config.project_config.branches_dir)
+            .join(&branch_name);
+
+        // Check for uncommitted changes in worktree (if it exists as a directory)
+        if worktree_path.exists() {
+            if GitManager::has_uncommitted_changes(&worktree_path)? {
+                eprintln!("Cannot merge: worktree '{}' has uncommitted changes.", branch_name);
+                eprintln!();
+                eprintln!("To resolve:");
+                eprintln!("  vibetree switch {}", branch_name);
+                eprintln!("  git add . && git commit -m \"your message\"");
+                eprintln!("  vibetree merge {}", branch_name);
+                anyhow::bail!("Uncommitted changes in worktree");
+            }
+        }
+
+        // Check for uncommitted changes in target (main worktree)
+        if GitManager::has_uncommitted_changes(&self.vibetree_parent)? {
+            eprintln!(
+                "Cannot merge: target branch '{}' has uncommitted changes.",
+                target_branch
+            );
+            eprintln!();
+            eprintln!("To resolve:");
+            eprintln!("  vibetree switch {}", target_branch);
+            eprintln!("  git add . && git commit -m \"your message\"");
+            eprintln!("  vibetree merge {}", branch_name);
+            anyhow::bail!("Uncommitted changes in target");
+        }
+
+        // Test if operation would succeed and execute
+        if rebase {
+            // For rebase, we need to run from the worktree directory where the branch is checked out
+            let wt_path = if worktree_path.exists() {
+                Some(worktree_path.as_path())
+            } else {
+                None
+            };
+
+            // Try the rebase - if it fails with conflicts, we abort and provide guidance
+            match GitManager::rebase_and_merge(&repo_path, &branch_name, &target_branch, wt_path) {
+                Ok(()) => {
+                    // Success - continue below
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if err_str.contains("conflict") || err_str.contains("CONFLICT") || err_str.contains("Rebase failed") {
+                        eprintln!("Cannot rebase cleanly - conflicts would occur.");
+                        eprintln!();
+                        eprintln!("To resolve manually:");
+                        eprintln!("  vibetree switch {}", branch_name);
+                        eprintln!("  git rebase {}", target_branch);
+                        eprintln!("  # Resolve each conflict, then: git rebase --continue");
+                        eprintln!("  # Repeat until complete");
+                        eprintln!();
+                        eprintln!("  vibetree switch {}", target_branch);
+                        eprintln!("  git merge --ff-only {}", branch_name);
+                        eprintln!("  vibetree merge {}   # Detects merge complete, offers cleanup", branch_name);
+                        anyhow::bail!("Rebase would have conflicts");
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+            info!(
+                "Successfully rebased and merged '{}' into '{}'",
+                branch_name, target_branch
+            );
+        } else if squash {
+            // Test squash
+            if !GitManager::can_squash_cleanly(&repo_path, &branch_name, &target_branch)? {
+                eprintln!("Cannot squash merge cleanly - conflicts detected.");
+                eprintln!();
+                eprintln!("To resolve manually:");
+                eprintln!("  vibetree switch {}", target_branch);
+                eprintln!("  git merge --squash {}", branch_name);
+                eprintln!("  # Resolve conflicts, then:");
+                eprintln!("  git add . && git commit -m \"your message\"");
+                eprintln!("  vibetree merge {}   # Detects merge complete, offers cleanup", branch_name);
+                anyhow::bail!("Squash merge would have conflicts");
+            }
+
+            // Prompt for commit message
+            print!("Enter commit message for squash merge: ");
+            io::stdout().flush().context("Failed to flush stdout")?;
+
+            let mut message = String::new();
+            io::stdin()
+                .read_line(&mut message)
+                .context("Failed to read commit message")?;
+
+            let message = message.trim();
+            if message.is_empty() {
+                anyhow::bail!("Commit message cannot be empty");
+            }
+
+            // Execute squash merge
+            GitManager::squash_merge_branch(&repo_path, &branch_name, &target_branch, message)?;
+            info!(
+                "Successfully squash merged '{}' into '{}'",
+                branch_name, target_branch
+            );
+        } else {
+            // Test regular merge
+            if !GitManager::can_merge_cleanly(&repo_path, &branch_name, &target_branch)? {
+                eprintln!("Cannot merge cleanly - conflicts detected.");
+                eprintln!();
+                eprintln!("To resolve manually:");
+                eprintln!("  vibetree switch {}", target_branch);
+                eprintln!("  git merge {}", branch_name);
+                eprintln!("  # Resolve conflicts, then:");
+                eprintln!("  git add . && git commit");
+                eprintln!("  vibetree merge {}   # Detects merge complete, offers cleanup", branch_name);
+                anyhow::bail!("Merge would have conflicts");
+            }
+
+            // Execute merge
+            GitManager::merge_branch(&repo_path, &branch_name, &target_branch)?;
+            info!(
+                "Successfully merged '{}' into '{}'",
+                branch_name, target_branch
+            );
+        }
+
+        // Handle cleanup
+        if remove_after {
+            self.handle_post_merge_cleanup(&branch_name)?;
+        } else {
+            info!("To clean up the worktree, run:");
+            info!("  vibetree remove {}", branch_name);
+        }
+
+        Ok(())
+    }
+
+    /// Handle worktree cleanup after a successful merge
+    fn handle_post_merge_cleanup(&mut self, branch_name: &str) -> Result<()> {
+        // Check if we're currently in the worktree being removed
+        let worktree_path = self
+            .vibetree_parent
+            .join(&self.config.project_config.branches_dir)
+            .join(branch_name);
+
+        if let Ok(current_dir) = std::env::current_dir() {
+            if current_dir.starts_with(&worktree_path) {
+                warn!(
+                    "You are currently in the worktree '{}'. Cannot remove current directory.",
+                    branch_name
+                );
+                info!("Switch to another worktree first, then run:");
+                info!("  vibetree remove {}", branch_name);
+                return Ok(());
+            }
+        }
+
+        // Check if worktree exists in config
+        if self.config.branches_config.worktrees.contains_key(branch_name) {
+            // Use the internal method with force=true to skip prompts
+            self.remove_worktree_with_confirmation(
+                branch_name.to_string(),
+                true,  // force
+                false, // don't keep branch
+                false, // don't prompt for confirmation
+            )?;
+            info!("Removed worktree '{}'", branch_name);
+        } else {
+            // Worktree not in vibetree config, but branch might exist
+            // Just try to remove the git branch
+            let repo_path = GitManager::find_repo_root(&self.vibetree_parent)?;
+            if let Err(e) = GitManager::remove_worktree(&repo_path, branch_name, false) {
+                debug!("Could not remove worktree via git: {}", e);
+            }
+            info!("Cleaned up branch '{}'", branch_name);
+        }
+
+        Ok(())
+    }
+
     /// Switch to an existing worktree directory
     pub fn switch_to_worktree(&self, branch_name: String) -> Result<()> {
         info!("Switching to worktree: {}", branch_name);

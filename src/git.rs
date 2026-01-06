@@ -10,6 +10,393 @@ impl GitManager {
         path.join(".git").exists()
     }
 
+    /// Check if there are uncommitted changes in the repository
+    pub fn has_uncommitted_changes(repo_path: &Path) -> Result<bool> {
+        use std::process::Command;
+
+        let output = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to execute git status")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("git status failed: {}", stderr);
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(!stdout.trim().is_empty())
+    }
+
+    /// Check if a branch is an ancestor of another (i.e., already merged)
+    pub fn is_ancestor(repo_path: &Path, branch: &str, target: &str) -> Result<bool> {
+        use std::process::Command;
+
+        let output = Command::new("git")
+            .args(["merge-base", "--is-ancestor", branch, target])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to execute git merge-base")?;
+
+        // Exit code 0 means branch IS an ancestor of target
+        // Exit code 1 means branch is NOT an ancestor
+        // Other exit codes are errors
+        match output.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                anyhow::bail!("git merge-base failed: {}", stderr);
+            }
+        }
+    }
+
+    /// Test if a merge would succeed without conflicts
+    pub fn can_merge_cleanly(repo_path: &Path, branch: &str, target: &str) -> Result<bool> {
+        use std::process::Command;
+
+        // First, checkout the target branch
+        let checkout = Command::new("git")
+            .args(["checkout", target])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to checkout target branch")?;
+
+        if !checkout.status.success() {
+            let stderr = String::from_utf8_lossy(&checkout.stderr);
+            anyhow::bail!("Failed to checkout {}: {}", target, stderr);
+        }
+
+        // Try a merge with --no-commit --no-ff to test
+        let merge = Command::new("git")
+            .args(["merge", "--no-commit", "--no-ff", branch])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to execute test merge")?;
+
+        let can_merge = merge.status.success();
+
+        // Always abort/reset to clean up
+        let _ = Command::new("git")
+            .args(["merge", "--abort"])
+            .current_dir(repo_path)
+            .output();
+
+        Ok(can_merge)
+    }
+
+    /// Test if a squash merge would succeed without conflicts
+    pub fn can_squash_cleanly(repo_path: &Path, branch: &str, target: &str) -> Result<bool> {
+        use std::process::Command;
+
+        // First, checkout the target branch
+        let checkout = Command::new("git")
+            .args(["checkout", target])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to checkout target branch")?;
+
+        if !checkout.status.success() {
+            let stderr = String::from_utf8_lossy(&checkout.stderr);
+            anyhow::bail!("Failed to checkout {}: {}", target, stderr);
+        }
+
+        // Try a squash merge with --no-commit to test
+        let merge = Command::new("git")
+            .args(["merge", "--squash", "--no-commit", branch])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to execute test squash merge")?;
+
+        let can_merge = merge.status.success();
+
+        // Reset to clean up (squash doesn't leave merge state, so use reset)
+        let _ = Command::new("git")
+            .args(["reset", "--hard", "HEAD"])
+            .current_dir(repo_path)
+            .output();
+
+        Ok(can_merge)
+    }
+
+    /// Test if a rebase would succeed without conflicts
+    ///
+    /// For worktrees, the rebase must be run from the worktree directory since
+    /// git doesn't allow checking out a branch that's already checked out elsewhere.
+    pub fn can_rebase_cleanly(
+        repo_path: &Path,
+        branch: &str,
+        target: &str,
+        worktree_path: Option<&Path>,
+    ) -> Result<bool> {
+        use std::process::Command;
+
+        // Determine where to run the rebase
+        let rebase_dir = worktree_path.unwrap_or(repo_path);
+
+        // For worktree case, the branch is already checked out there
+        // For non-worktree case, we need to checkout first (but this shouldn't happen in practice)
+        if worktree_path.is_none() {
+            // Remember current branch to restore later
+            let current_branch = Self::get_current_branch(repo_path)?;
+
+            // Checkout the branch to rebase
+            let checkout = Command::new("git")
+                .args(["checkout", branch])
+                .current_dir(repo_path)
+                .output()
+                .context("Failed to checkout branch for rebase test")?;
+
+            if !checkout.status.success() {
+                let stderr = String::from_utf8_lossy(&checkout.stderr);
+                anyhow::bail!("Failed to checkout {}: {}", branch, stderr);
+            }
+
+            // Try the rebase
+            let rebase = Command::new("git")
+                .args(["rebase", target])
+                .current_dir(repo_path)
+                .output()
+                .context("Failed to execute test rebase")?;
+
+            let can_rebase = rebase.status.success();
+
+            // Abort rebase if it failed
+            if !can_rebase {
+                let _ = Command::new("git")
+                    .args(["rebase", "--abort"])
+                    .current_dir(repo_path)
+                    .output();
+            }
+
+            // If rebase succeeded, undo it
+            if can_rebase {
+                let _ = Command::new("git")
+                    .args(["reset", "--hard", &format!("{}@{{1}}", branch)])
+                    .current_dir(repo_path)
+                    .output();
+            }
+
+            // Return to original branch
+            let _ = Command::new("git")
+                .args(["checkout", &current_branch])
+                .current_dir(repo_path)
+                .output();
+
+            Ok(can_rebase)
+        } else {
+            // Worktree case - run rebase directly in the worktree
+            let rebase = Command::new("git")
+                .args(["rebase", target])
+                .current_dir(rebase_dir)
+                .output()
+                .context("Failed to execute test rebase")?;
+
+            let can_rebase = rebase.status.success();
+
+            // Abort rebase if it failed
+            if !can_rebase {
+                let _ = Command::new("git")
+                    .args(["rebase", "--abort"])
+                    .current_dir(rebase_dir)
+                    .output();
+            }
+
+            // If rebase succeeded, undo it using reflog
+            if can_rebase {
+                let _ = Command::new("git")
+                    .args(["reset", "--hard", &format!("{}@{{1}}", branch)])
+                    .current_dir(rebase_dir)
+                    .output();
+            }
+
+            Ok(can_rebase)
+        }
+    }
+
+    /// Execute a merge
+    pub fn merge_branch(repo_path: &Path, branch: &str, target: &str) -> Result<()> {
+        use std::process::Command;
+
+        // Checkout target branch
+        let checkout = Command::new("git")
+            .args(["checkout", target])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to checkout target branch")?;
+
+        if !checkout.status.success() {
+            let stderr = String::from_utf8_lossy(&checkout.stderr);
+            anyhow::bail!("Failed to checkout {}: {}", target, stderr);
+        }
+
+        // Execute merge
+        let merge = Command::new("git")
+            .args(["merge", branch])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to execute merge")?;
+
+        if !merge.status.success() {
+            let stderr = String::from_utf8_lossy(&merge.stderr);
+            anyhow::bail!("Merge failed: {}", stderr);
+        }
+
+        Ok(())
+    }
+
+    /// Execute a squash merge with a custom commit message
+    pub fn squash_merge_branch(
+        repo_path: &Path,
+        branch: &str,
+        target: &str,
+        message: &str,
+    ) -> Result<()> {
+        use std::process::Command;
+
+        // Checkout target branch
+        let checkout = Command::new("git")
+            .args(["checkout", target])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to checkout target branch")?;
+
+        if !checkout.status.success() {
+            let stderr = String::from_utf8_lossy(&checkout.stderr);
+            anyhow::bail!("Failed to checkout {}: {}", target, stderr);
+        }
+
+        // Execute squash merge
+        let merge = Command::new("git")
+            .args(["merge", "--squash", branch])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to execute squash merge")?;
+
+        if !merge.status.success() {
+            let stderr = String::from_utf8_lossy(&merge.stderr);
+            anyhow::bail!("Squash merge failed: {}", stderr);
+        }
+
+        // Commit with the provided message
+        let commit = Command::new("git")
+            .args(["commit", "-m", message])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to commit squash merge")?;
+
+        if !commit.status.success() {
+            let stderr = String::from_utf8_lossy(&commit.stderr);
+            anyhow::bail!("Failed to commit squash merge: {}", stderr);
+        }
+
+        Ok(())
+    }
+
+    /// Execute a rebase and fast-forward merge
+    ///
+    /// For worktrees, the rebase must be run from the worktree directory since
+    /// git doesn't allow checking out a branch that's already checked out elsewhere.
+    pub fn rebase_and_merge(
+        repo_path: &Path,
+        branch: &str,
+        target: &str,
+        worktree_path: Option<&Path>,
+    ) -> Result<()> {
+        use std::process::Command;
+
+        // Determine where to run the rebase
+        let rebase_dir = worktree_path.unwrap_or(repo_path);
+
+        if worktree_path.is_some() {
+            // Worktree case - run rebase directly in the worktree
+            let rebase = Command::new("git")
+                .args(["rebase", target])
+                .current_dir(rebase_dir)
+                .output()
+                .context("Failed to execute rebase")?;
+
+            if !rebase.status.success() {
+                // Abort the failed rebase
+                let _ = Command::new("git")
+                    .args(["rebase", "--abort"])
+                    .current_dir(rebase_dir)
+                    .output();
+                let stderr = String::from_utf8_lossy(&rebase.stderr);
+                anyhow::bail!("Rebase failed: {}", stderr);
+            }
+        } else {
+            // Non-worktree case - checkout first
+            let checkout = Command::new("git")
+                .args(["checkout", branch])
+                .current_dir(repo_path)
+                .output()
+                .context("Failed to checkout branch for rebase")?;
+
+            if !checkout.status.success() {
+                let stderr = String::from_utf8_lossy(&checkout.stderr);
+                anyhow::bail!("Failed to checkout {}: {}", branch, stderr);
+            }
+
+            // Execute rebase
+            let rebase = Command::new("git")
+                .args(["rebase", target])
+                .current_dir(repo_path)
+                .output()
+                .context("Failed to execute rebase")?;
+
+            if !rebase.status.success() {
+                // Abort the failed rebase
+                let _ = Command::new("git")
+                    .args(["rebase", "--abort"])
+                    .current_dir(repo_path)
+                    .output();
+                let stderr = String::from_utf8_lossy(&rebase.stderr);
+                anyhow::bail!("Rebase failed: {}", stderr);
+            }
+        }
+
+        // Checkout target (in main repo) and fast-forward merge
+        let checkout_target = Command::new("git")
+            .args(["checkout", target])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to checkout target after rebase")?;
+
+        if !checkout_target.status.success() {
+            let stderr = String::from_utf8_lossy(&checkout_target.stderr);
+            anyhow::bail!("Failed to checkout {}: {}", target, stderr);
+        }
+
+        // Fast-forward merge
+        let merge = Command::new("git")
+            .args(["merge", "--ff-only", branch])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to execute fast-forward merge")?;
+
+        if !merge.status.success() {
+            let stderr = String::from_utf8_lossy(&merge.stderr);
+            anyhow::bail!("Fast-forward merge failed: {}", stderr);
+        }
+
+        Ok(())
+    }
+
+    /// Check if a branch exists
+    pub fn branch_exists(repo_path: &Path, branch: &str) -> Result<bool> {
+        use std::process::Command;
+
+        let output = Command::new("git")
+            .args(["rev-parse", "--verify", &format!("refs/heads/{}", branch)])
+            .current_dir(repo_path)
+            .output()
+            .context("Failed to check branch existence")?;
+
+        Ok(output.status.success())
+    }
+
     /// Check if vibetree is already configured (has vibetree.toml)
     pub fn is_vibetree_configured(repo_root: &Path) -> bool {
         repo_root.join("vibetree.toml").exists()
